@@ -346,6 +346,7 @@ export async function getLeadsFilteredByAgent() {
   return allLeads.filter(lead => {
     // Normalize agent names. E.g. lead.agent can be 'jordan', 'sandra', or undefined/empty (unassigned)
     const agent = (lead.agent || 'unassigned').toLowerCase().trim();
+    if (agent === 'unassigned') return true; // Always include common "Lista" (unassigned) leads
     return activeAgents.includes(agent);
   });
 }

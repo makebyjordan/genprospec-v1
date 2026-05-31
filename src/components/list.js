@@ -215,7 +215,7 @@ export async function renderList(containerId) {
   container.innerHTML = '<div class="notifications-empty" style="padding:40px">Cargando lista...</div>';
 
   try {
-    const leads = await getLeadsFilteredByAgent();
+    const leads = await getAllLeads();
     const active   = leads.filter(l => l.status !== 'archived');
     const archived = leads.filter(l => l.status === 'archived');
     const customKeys = collectCustomFieldKeys(leads);
@@ -231,17 +231,6 @@ export async function renderList(containerId) {
       { key: 'agent',   label: 'Agente' },
     ];
 
-    let activeAgents = ['jordan', 'sandra', 'unassigned'];
-    try {
-      const saved = localStorage.getItem('gespropec_active_agents');
-      if (saved) activeAgents = JSON.parse(saved);
-    } catch(e) {}
-
-    const agentLabel = activeAgents.length === 1
-      ? (activeAgents[0] === 'jordan' ? '— Jordan García'
-       : activeAgents[0] === 'sandra' ? '— Sandra Delgado' : '')
-      : '';
-
     container.innerHTML = `
       <div class="list-toolbar">
         <div class="list-search-wrap">
@@ -251,7 +240,7 @@ export async function renderList(containerId) {
           <input type="text" id="list-search-input" class="list-search-input" placeholder="Buscar por nombre, empresa, teléfono…">
         </div>
         <div class="list-toolbar-right">
-          <span class="list-count-label" id="list-count-label">${active.length} prospectos ${agentLabel}</span>
+          <span class="list-count-label" id="list-count-label">${active.length} prospectos</span>
           <button id="list-export-csv-btn" class="btn-list-action" title="Exportar a CSV">
             <svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
