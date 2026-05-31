@@ -215,7 +215,7 @@ export async function renderList(containerId) {
   container.innerHTML = '<div class="notifications-empty" style="padding:40px">Cargando lista...</div>';
 
   try {
-    const leads = await getAllLeads();
+    const leads = await getLeadsFilteredByAgent();
     const active   = leads.filter(l => l.status !== 'archived');
     const archived = leads.filter(l => l.status === 'archived');
     const customKeys = collectCustomFieldKeys(leads);

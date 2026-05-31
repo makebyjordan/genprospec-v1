@@ -336,18 +336,21 @@ export async function getLeadsFilteredByAgent() {
     }
   }
 
-  // If no filters are active, treat as "show all" or "none". Let's show all for a better UX,
-  // or show empty list if they explicitly deselected everything.
-  // Wait, let's treat it as: if the array is empty, show nothing.
-  if (!activeAgents || activeAgents.length === 0) {
+  const hasJordan = activeAgents.includes('jordan');
+  const hasSandra = activeAgents.includes('sandra');
+
+  // If neither jordan nor sandra is active, return empty list
+  if (!hasJordan && !hasSandra) {
     return [];
   }
 
   return allLeads.filter(lead => {
     // Normalize agent names. E.g. lead.agent can be 'jordan', 'sandra', or undefined/empty (unassigned)
     const agent = (lead.agent || 'unassigned').toLowerCase().trim();
-    if (agent === 'unassigned') return true; // Always include common "Lista" (unassigned) leads
-    return activeAgents.includes(agent);
+    if (agent === 'unassigned') return true; // Always include common "Lista" (unassigned) leads if at least one agent is active
+    if (agent === 'jordan') return hasJordan;
+    if (agent === 'sandra') return hasSandra;
+    return false;
   });
 }
 
