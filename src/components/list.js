@@ -1,5 +1,49 @@
 import { getLeadsFilteredByAgent, getAllLeads, getLeadById, updateLead, deleteLead, addLog } from '../db.js';
 
+export const PIPELINE_STATES = {
+  'enviado': { label: 'Enviado', color: '#60a5fa' },
+  'contestado': { label: 'Contestado', color: '#3b82f6' },
+  'no contesta': { label: 'No contesta', color: '#94a3b8' },
+  'pide info': { label: 'Pide info', color: '#fb923c' },
+  'cuanto cuesta': { label: 'Cuánto cuesta', color: '#f59e0b' },
+  'podemos quedar': { label: 'Podemos quedar', color: '#818cf8' },
+  'mas info': { label: 'Más info', color: '#fbbf24' },
+  'cita': { label: 'Cita', color: '#a78bfa' },
+  'envio demo': { label: 'Envío demo', color: '#2dd4bf' },
+  'llamar': { label: 'Llamar', color: '#ec4899' },
+  'presupuesto': { label: 'Presupuesto', color: '#14b8a6' },
+  'firmado': { label: 'Firmado', color: '#10b981' },
+  'haciendo': { label: 'Haciendo', color: '#06b6d4' },
+  'cobro parcial': { label: 'Cobro parcial', color: '#f43f5e' },
+  'cobro total': { label: 'Cobro total', color: '#e11d48' },
+  'implementado': { label: 'Implementado', color: '#8b5cf6' },
+  'con mensualidad': { label: 'Con mensualidad', color: '#d946ef' },
+  'finalizado': { label: 'Finalizado', color: '#16a34a' },
+  'descartado': { label: 'Descartado', color: '#ef4444' }
+};
+
+export function buildPipelineSelectHTML(lead) {
+  const currentVal = lead.pipelineState || '';
+  const stateConfig = PIPELINE_STATES[currentVal] || { label: 'Seleccionar...', color: '#94a3b8' };
+  const color = stateConfig.color;
+  
+  const optionsHTML = Object.entries(PIPELINE_STATES).map(([key, val]) => {
+    const selected = currentVal === key ? 'selected' : '';
+    return `<option value="${key}" ${selected}>${val.label}</option>`;
+  }).join('');
+
+  return `
+    <select class="pipeline-select" data-leadid="${lead.id}" style="
+      background: ${color}15;
+      color: ${color};
+      border: 1px solid ${color}40;
+    ">
+      <option value="" ${currentVal === '' ? 'selected' : ''}>-- Ninguno --</option>
+      ${optionsHTML}
+    </select>
+  `;
+}
+
 let onLeadClickCallback = null;
 let onListUpdatedCallback = null;
 let _containerId = null;
@@ -177,6 +221,7 @@ export async function renderList(containerId) {
     const customKeys = collectCustomFieldKeys(leads);
 
     const standardCols = [
+      { key: 'pipelineState', label: 'Seguimiento' },
       { key: 'name',    label: 'Nombre' },
       { key: 'company', label: 'Empresa' },
       { key: 'phone',   label: 'Teléfono' },
@@ -323,6 +368,9 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
     const otherLabel = otherAgentLabel(lead.agent);
 
     const cells = allCols.map(col => {
+      if (col.key === 'pipelineState') {
+        return `<td class="list-td list-td-nobold" style="padding: 6px 14px; min-width: 140px;">${buildPipelineSelectHTML(lead)}</td>`;
+      }
       if (col.key === 'status') {
         return `<td class="list-td list-td-nobold">${statusBadge(lead.status)}</td>`;
       }
@@ -337,7 +385,7 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
       const val = col.isCustom
         ? (lead.customFields?.[col.rawKey] ?? '')
         : (lead[col.key] ?? '');
-      const isEditable = col.key !== 'status' && col.key !== 'agent';
+      const isEditable = col.key !== 'status' && col.key !== 'agent' && col.key !== 'pipelineState';
       return `<td class="list-td${col.key === 'name' ? '' : ' list-td-nobold'}${isEditable ? ' list-td-editable' : ''}"
         data-field="${col.isCustom ? col.rawKey : col.key}"
         data-custom="${col.isCustom ? '1' : '0'}"
@@ -435,13 +483,39 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
     makeEditable(td, lead, fieldKey, isCustom, fieldKey, containerId);
   });
 
+  // Wire pipeline select click & changes
+  table.querySelectorAll('.pipeline-select').forEach(select => {
+    select.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    select.addEventListener('change', async (e) => {
+      const leadId = select.dataset.leadid;
+      const newVal = select.value;
+      const lead = await getLeadById(leadId);
+      if (!lead) return;
+      
+      const prevVal = lead.pipelineState || 'ninguno';
+      lead.pipelineState = newVal;
+      await updateLead(lead);
+      await addLog(leadId, 'system', `Estado de seguimiento cambiado de "${prevVal}" a "${newVal || 'ninguno'}" desde la Lista.`);
+      
+      // Update select styling dynamically
+      const config = PIPELINE_STATES[newVal] || { label: 'Seleccionar...', color: '#94a3b8' };
+      select.style.background = `${config.color}15`;
+      select.style.color = config.color;
+      select.style.borderColor = `${config.color}40`;
+      
+      if (onListUpdatedCallback) onListUpdatedCallback();
+    });
+  });
+
   // Row button actions
   table.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) {
       // Row click = open detail
       const row = e.target.closest('.list-row');
-      if (row && !e.target.closest('.list-td-editable') && onLeadClickCallback) {
+      if (row && !e.target.closest('.list-td-editable') && !e.target.closest('.pipeline-select') && onLeadClickCallback) {
         onLeadClickCallback(row.dataset.id);
       }
       return;

@@ -41,11 +41,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Initialize DB
     await initDB();
     
-    // 2. Check if DB is empty. If so, pre-populate with mock data for instant wow factor!
+    // 2. Clear predefined demo/mock leads from IndexedDB
     const existing = await getAllLeads();
-    if (existing.length === 0) {
-      console.log('Database empty. Loading mock leads for demo...');
-      await loadDemoData(false); // Silent load without alerts
+    const mockIds = ['lead-1', 'lead-2', 'lead-3', 'lead-4', 'lead-5', 'lead-6', 'lead-7'];
+    for (const lead of existing) {
+      if (mockIds.includes(lead.id)) {
+        await deleteLead(lead.id);
+      }
     }
 
     await autoAssignAgentsToExistingLeads();

@@ -10,6 +10,7 @@ import {
   deleteReminder 
 } from '../db.js';
 import { STAGES } from './board.js';
+import { PIPELINE_STATES } from './list.js';
 import { TEMPLATES, SENDER_DEFAULTS, SECTOR_PRESETS, getDynamicGreetingVars } from '../templates.js';
 
 let currentLeadId = null;
@@ -174,6 +175,13 @@ function setupModalDOM() {
           <div class="form-group">
             <label class="form-label">Redes Sociales / Instagram</label>
             <input type="text" id="edit-socials" class="input-field" placeholder="@usuario o link">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fase de Seguimiento (Lista)</label>
+            <select id="edit-pipeline-state" class="input-field" style="background-color: var(--bg-surface);">
+              <option value="">-- Ninguno --</option>
+              ${Object.entries(PIPELINE_STATES).map(([key, val]) => `<option value="${key}">${val.label}</option>`).join('')}
+            </select>
           </div>
           <div class="form-group">
             <label class="form-label">Estado de Seguimiento</label>
@@ -395,6 +403,7 @@ function setupModalDOM() {
     const socials = document.getElementById('edit-socials').value.trim();
     const status = document.getElementById('edit-status').value;
     const agent = document.getElementById('edit-agent').value;
+    const pipelineState = document.getElementById('edit-pipeline-state').value;
 
     try {
       const oldLead = await getLeadById(currentLeadId);
@@ -424,6 +433,7 @@ function setupModalDOM() {
         socials,
         status,
         agent,
+        pipelineState,
         customFields
       };
 
@@ -435,6 +445,13 @@ function setupModalDOM() {
         const oldName = STAGES[oldLead.status]?.label || oldLead.status;
         const newName = STAGES[status]?.label;
         await addLog(currentLeadId, 'system', `Estado cambiado de "${oldName}" a "${newName}"`);
+      }
+
+      // Log pipelineState change if changed
+      if (oldLead.pipelineState !== pipelineState) {
+        const oldName = PIPELINE_STATES[oldLead.pipelineState]?.label || 'ninguno';
+        const newName = PIPELINE_STATES[pipelineState]?.label || 'ninguno';
+        await addLog(currentLeadId, 'system', `Fase de seguimiento cambiada de "${oldName}" a "${newName}"`);
       }
 
       await addLog(currentLeadId, 'system', 'Información de contacto actualizada');
@@ -1039,6 +1056,7 @@ export async function openLeadDrawer(leadId, activeTabId = 'tab-history') {
     document.getElementById('edit-socials').value = lead.socials || '';
     document.getElementById('edit-status').value = lead.status || 'new';
     document.getElementById('edit-agent').value = lead.agent || 'unassigned';
+    document.getElementById('edit-pipeline-state').value = lead.pipelineState || '';
 
     // Render custom fields
     const customFieldsSection = document.getElementById('custom-fields-section');
