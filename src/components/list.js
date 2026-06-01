@@ -207,6 +207,347 @@ function makeEditable(td, lead, fieldKey, isCustom, rawKey, containerId) {
   });
 }
 
+export function getColumnsConfig(leads) {
+  const customKeys = collectCustomFieldKeys(leads);
+  const standardCols = [
+    { key: 'pipelineState', label: 'Seguimiento' },
+    { key: 'name',    label: 'Nombre' },
+    { key: 'company', label: 'Empresa' },
+    { key: 'phone',   label: 'Teléfono' },
+    { key: 'email',   label: 'Correo' },
+    { key: 'website', label: 'Web' },
+    { key: 'status',  label: 'Estado' },
+    { key: 'agent',   label: 'Agente' },
+  ];
+  
+  const defaultCols = [
+    ...standardCols.map(c => ({ ...c, visible: true })),
+    ...customKeys.map(k => ({ key: `cf_${k}`, label: k, isCustom: true, rawKey: k, visible: true }))
+  ];
+
+  const stored = localStorage.getItem('gespropec_list_columns_config');
+  if (!stored) {
+    return defaultCols;
+  }
+
+  try {
+    const config = JSON.parse(stored);
+    const merged = [];
+    const configKeys = new Set(config.map(c => c.key));
+
+    config.forEach(c => {
+      const defMatch = defaultCols.find(dc => dc.key === c.key);
+      if (defMatch) {
+        merged.push({
+          key: c.key,
+          label: defMatch.label,
+          visible: c.visible !== false,
+          isCustom: defMatch.isCustom || false,
+          rawKey: defMatch.rawKey || undefined
+        });
+      }
+    });
+
+    defaultCols.forEach(dc => {
+      if (!configKeys.has(dc.key)) {
+        merged.push({ ...dc });
+      }
+    });
+
+    return merged;
+  } catch (e) {
+    console.error('Error parsing column configuration, returning default:', e);
+    return defaultCols;
+  }
+}
+
+function renderPopupListItems(listContainer, colsCopy) {
+  listContainer.innerHTML = '';
+  colsCopy.forEach((col, index) => {
+    const li = document.createElement('div');
+    li.className = 'col-config-item';
+    li.draggable = true;
+    li.dataset.index = index;
+    li.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: grab;
+      user-select: none;
+      transition: all 0.15s ease;
+    `;
+    
+    li.addEventListener('mouseenter', () => {
+      li.style.background = 'rgba(255, 255, 255, 0.06)';
+      li.style.borderColor = 'var(--accent-purple)';
+    });
+    li.addEventListener('mouseleave', () => {
+      li.style.background = 'rgba(255, 255, 255, 0.03)';
+      li.style.borderColor = 'var(--border-color)';
+    });
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = col.visible !== false;
+    checkbox.style.cssText = `
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent-purple);
+      cursor: pointer;
+    `;
+    checkbox.addEventListener('change', () => {
+      col.visible = checkbox.checked;
+    });
+
+    const handle = document.createElement('span');
+    handle.innerHTML = `
+      <svg style="width:16px;height:16px;color:var(--text-muted);cursor:grab;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+      </svg>
+    `;
+    handle.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    const label = document.createElement('span');
+    label.textContent = col.label;
+    label.style.cssText = `
+      flex-grow: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    `;
+
+    const btnContainer = document.createElement('div');
+    btnContainer.style.cssText = `
+      display: flex;
+      gap: 4px;
+    `;
+
+    const upBtn = document.createElement('button');
+    upBtn.innerHTML = '▲';
+    upBtn.title = 'Subir columna';
+    upBtn.style.cssText = `
+      border: 1px solid var(--border-color);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    `;
+    if (index === 0) {
+      upBtn.disabled = true;
+      upBtn.style.opacity = '0.3';
+      upBtn.style.cursor = 'not-allowed';
+    } else {
+      upBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const temp = colsCopy[index];
+        colsCopy[index] = colsCopy[index - 1];
+        colsCopy[index - 1] = temp;
+        renderPopupListItems(listContainer, colsCopy);
+      });
+      upBtn.addEventListener('mouseenter', () => {
+        upBtn.style.borderColor = 'var(--accent-purple)';
+        upBtn.style.color = '#fff';
+      });
+      upBtn.addEventListener('mouseleave', () => {
+        upBtn.style.borderColor = 'var(--border-color)';
+        upBtn.style.color = 'var(--text-secondary)';
+      });
+    }
+
+    const downBtn = document.createElement('button');
+    downBtn.innerHTML = '▼';
+    downBtn.title = 'Bajar columna';
+    downBtn.style.cssText = `
+      border: 1px solid var(--border-color);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    `;
+    if (index === colsCopy.length - 1) {
+      downBtn.disabled = true;
+      downBtn.style.opacity = '0.3';
+      downBtn.style.cursor = 'not-allowed';
+    } else {
+      downBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const temp = colsCopy[index];
+        colsCopy[index] = colsCopy[index + 1];
+        colsCopy[index + 1] = temp;
+        renderPopupListItems(listContainer, colsCopy);
+      });
+      downBtn.addEventListener('mouseenter', () => {
+        downBtn.style.borderColor = 'var(--accent-purple)';
+        downBtn.style.color = '#fff';
+      });
+      downBtn.addEventListener('mouseleave', () => {
+        downBtn.style.borderColor = 'var(--border-color)';
+        downBtn.style.color = 'var(--text-secondary)';
+      });
+    }
+
+    btnContainer.appendChild(upBtn);
+    btnContainer.appendChild(downBtn);
+
+    li.appendChild(handle);
+    li.appendChild(checkbox);
+    li.appendChild(label);
+    li.appendChild(btnContainer);
+
+    li.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', index);
+      li.style.opacity = '0.4';
+      li.style.borderStyle = 'dashed';
+      li.style.borderColor = 'var(--accent-purple)';
+    });
+
+    li.addEventListener('dragend', () => {
+      li.style.opacity = '1';
+      li.style.borderStyle = 'solid';
+      li.style.borderColor = 'var(--border-color)';
+    });
+
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      li.style.background = 'rgba(124, 58, 237, 0.1)';
+      li.style.borderColor = 'var(--accent-purple)';
+    });
+
+    li.addEventListener('dragleave', () => {
+      li.style.background = 'rgba(255, 255, 255, 0.03)';
+      li.style.borderColor = 'var(--border-color)';
+    });
+
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const toIndex = index;
+      if (fromIndex !== toIndex) {
+        const [movedItem] = colsCopy.splice(fromIndex, 1);
+        colsCopy.splice(toIndex, 0, movedItem);
+        renderPopupListItems(listContainer, colsCopy);
+      }
+    });
+
+    listContainer.appendChild(li);
+  });
+}
+
+export function showColumnsConfigPopup(leads, containerId) {
+  document.getElementById('list-columns-overlay')?.remove();
+
+  const colsCopy = JSON.parse(JSON.stringify(getColumnsConfig(leads)));
+
+  const overlay = document.createElement('div');
+  overlay.id = 'list-columns-overlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
+    z-index: 9999; display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.15s ease;
+  `;
+
+  overlay.innerHTML = `
+    <div style="
+      background: var(--bg-surface, #0f0f15);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 24px;
+      max-width: 450px;
+      width: 90%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      animation: slideUp 0.2s ease;
+    ">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;border-bottom:1px solid var(--border-color);padding-bottom:12px;">
+        <h3 style="margin:0;font-size:18px;font-family:var(--font-heading);font-weight:600;color:var(--text-primary)">Configurar Columnas</h3>
+        <button id="list-columns-close" style="
+          border:none;background:none;color:var(--text-secondary);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;
+        ">
+          <svg style="width:20px;height:20px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <p style="color:var(--text-secondary);font-size:12px;margin:0 0 16px;line-height:1.4;">
+        Arrastra las columnas o usa los botones (▲/▼) para reordenarlas. Desmarca las casillas para ocultar columnas en la tabla.
+      </p>
+
+      <div id="list-columns-items-container" style="
+        flex-grow: 1;
+        overflow-y: auto;
+        padding-right: 4px;
+        margin-bottom: 20px;
+        max-height: 45vh;
+      ">
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:16px;">
+        <button id="list-columns-reset" style="
+          padding:9px 14px;border-radius:8px;border:1px solid var(--border-color);
+          background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;
+          transition:all 0.15s;
+        ">Restablecer</button>
+        
+        <div style="display:flex;gap:10px;">
+          <button id="list-columns-cancel" style="
+            padding:9px 18px;border-radius:8px;border:1px solid var(--border-color);
+            background:none;color:var(--text-secondary);font-size:13px;cursor:pointer;
+            transition:all 0.15s;
+          ">Cancelar</button>
+          <button id="list-columns-save" style="
+            padding:9px 18px;border-radius:8px;border:none;
+            background:var(--accent-purple);color:#fff;font-size:13px;font-weight:600;cursor:pointer;
+            transition:all 0.15s;
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+          ">Guardar y Aplicar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const listContainer = document.getElementById('list-columns-items-container');
+  renderPopupListItems(listContainer, colsCopy);
+
+  const closePopup = () => overlay.remove();
+  document.getElementById('list-columns-close').addEventListener('click', closePopup);
+  document.getElementById('list-columns-cancel').addEventListener('click', closePopup);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closePopup(); });
+
+  document.getElementById('list-columns-reset').addEventListener('click', () => {
+    localStorage.removeItem('gespropec_list_columns_config');
+    closePopup();
+    renderList(containerId);
+    if (onListUpdatedCallback) onListUpdatedCallback();
+  });
+
+  document.getElementById('list-columns-save').addEventListener('click', async () => {
+    localStorage.setItem('gespropec_list_columns_config', JSON.stringify(colsCopy));
+    closePopup();
+    await renderList(containerId);
+    if (onListUpdatedCallback) onListUpdatedCallback();
+  });
+}
+
 export async function renderList(containerId) {
   _containerId = containerId;
   const container = document.getElementById(containerId);
@@ -218,18 +559,7 @@ export async function renderList(containerId) {
     const leads = await getLeadsFilteredByAgent();
     const active   = leads.filter(l => l.status !== 'archived');
     const archived = leads.filter(l => l.status === 'archived');
-    const customKeys = collectCustomFieldKeys(leads);
-
-    const standardCols = [
-      { key: 'pipelineState', label: 'Seguimiento' },
-      { key: 'name',    label: 'Nombre' },
-      { key: 'company', label: 'Empresa' },
-      { key: 'phone',   label: 'Teléfono' },
-      { key: 'email',   label: 'Correo' },
-      { key: 'website', label: 'Web' },
-      { key: 'status',  label: 'Estado' },
-      { key: 'agent',   label: 'Agente' },
-    ];
+    const columnsConfig = getColumnsConfig(leads);
 
     container.innerHTML = `
       <div class="list-toolbar">
@@ -241,6 +571,13 @@ export async function renderList(containerId) {
         </div>
         <div class="list-toolbar-right">
           <span class="list-count-label" id="list-count-label">${active.length} prospectos</span>
+          <button id="list-columns-config-btn" class="btn-list-action" title="Configurar Columnas">
+            <svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Columnas
+          </button>
           <button id="list-export-csv-btn" class="btn-list-action" title="Exportar a CSV">
             <svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -266,7 +603,7 @@ export async function renderList(containerId) {
       </p>
 
       <div class="list-table-wrap" id="list-table-wrap">
-        ${buildTableHTML(active, standardCols, customKeys, 'active')}
+        ${buildTableHTML(active, columnsConfig, 'active')}
       </div>
 
       ${archived.length > 0 ? `
@@ -281,7 +618,7 @@ export async function renderList(containerId) {
           </svg>
         </div>
         <div class="list-archived-wrap" id="list-archived-wrap" style="display:none;">
-          ${buildTableHTML(archived, standardCols, customKeys, 'archived')}
+          ${buildTableHTML(archived, columnsConfig, 'archived')}
         </div>
       ` : ''}
     `;
@@ -291,9 +628,14 @@ export async function renderList(containerId) {
       filterTable(e.target.value.toLowerCase(), active);
     });
 
+    // Wire columns config
+    document.getElementById('list-columns-config-btn')?.addEventListener('click', () => {
+      showColumnsConfigPopup(leads, containerId);
+    });
+
     // Wire export
     document.getElementById('list-export-csv-btn')?.addEventListener('click', () => {
-      exportToCSV(active, standardCols, customKeys);
+      exportToCSV(active, columnsConfig);
     });
 
     // Wire delete-all
@@ -324,8 +666,8 @@ export async function renderList(containerId) {
     });
 
     // Wire inline edit + row actions
-    wireTable(active, standardCols, customKeys, containerId, false);
-    wireTable(archived, standardCols, customKeys, containerId, true);
+    wireTable(active, containerId, false);
+    wireTable(archived, containerId, true);
 
   } catch (err) {
     console.error('Error rendering list:', err);
@@ -333,11 +675,8 @@ export async function renderList(containerId) {
   }
 }
 
-function buildTableHTML(leads, standardCols, customKeys, tableId) {
-  const allCols = [
-    ...standardCols,
-    ...customKeys.map(k => ({ key: `cf_${k}`, label: k, isCustom: true, rawKey: k }))
-  ];
+function buildTableHTML(leads, columnsConfig, tableId) {
+  const visibleCols = columnsConfig.filter(col => col.visible !== false);
 
   if (leads.length === 0) {
     return `<div class="list-empty">
@@ -348,7 +687,7 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
     </div>`;
   }
 
-  const headerCells = allCols.map(col =>
+  const headerCells = visibleCols.map(col =>
     `<th class="list-th">${col.label}</th>`
   ).join('');
 
@@ -356,7 +695,7 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
     const other = otherAgent(lead.agent);
     const otherLabel = otherAgentLabel(lead.agent);
 
-    const cells = allCols.map(col => {
+    const cells = visibleCols.map(col => {
       if (col.key === 'pipelineState') {
         return `<td class="list-td list-td-nobold" style="padding: 6px 14px; min-width: 140px;">${buildPipelineSelectHTML(lead)}</td>`;
       }
@@ -384,7 +723,7 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
     }).join('');
 
     return `
-      <tr class="list-row" data-id="${lead.id}" data-agent="${lead.agent || ''}" data-search="${buildSearchStr(lead, customKeys)}">
+      <tr class="list-row" data-id="${lead.id}" data-agent="${lead.agent || ''}" data-search="${buildSearchStr(lead, columnsConfig)}">
         ${cells}
         <td class="list-td list-td-actions">
           <div class="list-row-actions">
@@ -439,9 +778,13 @@ function buildTableHTML(leads, standardCols, customKeys, tableId) {
   `;
 }
 
-function buildSearchStr(lead, customKeys) {
+function buildSearchStr(lead, columnsConfig) {
   const parts = [lead.name, lead.company, lead.phone, lead.email, lead.agent];
-  customKeys.forEach(k => parts.push(lead.customFields?.[k] ?? ''));
+  columnsConfig.forEach(col => {
+    if (col.isCustom) {
+      parts.push(lead.customFields?.[col.rawKey] ?? '');
+    }
+  });
   return parts.join(' ').toLowerCase();
 }
 
@@ -457,7 +800,7 @@ function filterTable(query, leads) {
   if (label) label.textContent = `${visible} prospectos${query ? ` que coinciden con "${query}"` : ''}`;
 }
 
-function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
+function wireTable(leads, containerId, isArchived) {
   const tableId = isArchived ? 'archived' : 'active';
   const table = document.getElementById(`list-table-${tableId}`);
   if (!table) return;
@@ -486,7 +829,6 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       const prevVal = lead.pipelineState || 'ninguno';
       lead.pipelineState = newVal;
 
-      // Sincronizar el estado de la oportunidad basado en la fase de seguimiento
       const prevStatus = lead.status || 'new';
       const newStatus = getStatusFromPipelineState(newVal);
       let statusUpdated = false;
@@ -578,7 +920,6 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       if (agentUpdated || statusUpdated) {
         await renderList(containerId);
       } else {
-        // Update select styling dynamically
         const config = PIPELINE_STATES[newVal] || { label: 'Seleccionar...', color: '#94a3b8' };
         select.style.background = `${config.color}15`;
         select.style.color = config.color;
@@ -589,11 +930,9 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
     });
   });
 
-  // Row button actions
   table.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) {
-      // Row click = open detail
       const row = e.target.closest('.list-row');
       if (row && !e.target.closest('.list-td-editable') && !e.target.closest('.pipeline-select') && onLeadClickCallback) {
         onLeadClickCallback(row.dataset.id);
@@ -607,7 +946,7 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       if (onLeadClickCallback) onLeadClickCallback(id);
 
     } else if (action === 'transfer') {
-      const target = btn.dataset.target; // 'jordan' or 'sandra'
+      const target = btn.dataset.target;
       const lead = await getLeadById(id);
       if (!lead) return;
       const from = lead.agent || 'sin asignar';
@@ -649,19 +988,16 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
   });
 }
 
-function exportToCSV(leads, standardCols, customKeys) {
+function exportToCSV(leads, columnsConfig) {
   if (leads.length === 0) { alert('No hay datos para exportar.'); return; }
-  const allCols = [
-    ...standardCols,
-    ...customKeys.map(k => ({ key: `cf_${k}`, label: k, isCustom: true, rawKey: k }))
-  ];
+  const visibleCols = columnsConfig.filter(col => col.visible !== false);
   const escape = val => {
     const s = String(val ?? '');
     return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s;
   };
-  const header = allCols.map(c => escape(c.label)).join(',');
+  const header = visibleCols.map(c => escape(c.label)).join(',');
   const rows = leads.map(lead =>
-    allCols.map(col => {
+    visibleCols.map(col => {
       if (col.isCustom) return escape(lead.customFields?.[col.rawKey] ?? '');
       if (col.key === 'agent') return escape(lead.agent || 'unassigned');
       return escape(lead[col.key] ?? '');
