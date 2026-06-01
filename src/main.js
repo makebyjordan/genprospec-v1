@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 7. Initial load
     switchView('dashboard');
     await refreshNotifications();
+    initPrivacyConsent();
 
   } catch (error) {
     console.error('App boot failure:', error);
@@ -1182,4 +1183,228 @@ async function autoAssignAgentsToExistingLeads() {
   if (updatedCount > 0) {
     console.log(`Auto-assigned ${updatedCount} leads to agents based on keywords.`);
   }
+}
+
+function initPrivacyConsent() {
+  if (localStorage.getItem('gespropec_privacy_consent')) {
+    return;
+  }
+
+  const banner = document.createElement('div');
+  banner.id = 'privacy-consent-banner';
+  banner.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    max-width: 400px;
+    width: calc(100% - 48px);
+    background: rgba(15, 15, 22, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    z-index: 99999;
+    opacity: 0;
+    transform: translateY(100px);
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+  `;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    @media (max-width: 480px) {
+      #privacy-consent-banner {
+        right: 16px !important;
+        left: 16px !important;
+        bottom: 16px !important;
+        width: auto !important;
+        max-width: none !important;
+        padding: 16px !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="
+        font-size: 20px;
+        background: rgba(124, 58, 237, 0.15);
+        padding: 6px;
+        border-radius: 8px;
+        display: inline-flex;
+      ">🛡️</span>
+      <h4 style="
+        margin:0;
+        font-family: var(--font-heading, sans-serif);
+        font-size:16px;
+        font-weight:600;
+        color:var(--text-primary, #fff);
+      ">Políticas de Privacidad y Cookies</h4>
+    </div>
+    
+    <p style="
+      margin: 0 0 20px;
+      font-size:13px;
+      line-height:1.5;
+      color: var(--text-secondary, #94a3b8);
+    ">
+      Utilizamos cookies propias y de terceros para optimizar el rendimiento de la aplicación CRM y personalizar tu experiencia de usuario. Consulta nuestras políticas y selecciona tus opciones.
+    </p>
+
+    <div id="privacy-config-panel" style="
+      display: none;
+      border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));
+      padding-top: 16px;
+      margin-bottom: 20px;
+      animation: fadeIn 0.2s ease;
+    ">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div>
+          <strong style="font-size:12px;color:var(--text-primary);">Cookies Necesarias</strong>
+          <p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">Esenciales para el funcionamiento del CRM.</p>
+        </div>
+        <input type="checkbox" checked disabled style="accent-color:var(--accent-purple);width:16px;height:16px;">
+      </div>
+      
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div>
+          <strong style="font-size:12px;color:var(--text-primary);">Analíticas e Informes</strong>
+          <p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">Nos permiten medir el uso de las funciones.</p>
+        </div>
+        <input type="checkbox" id="privacy-chk-analytics" checked style="accent-color:var(--accent-purple);width:16px;height:16px;cursor:pointer;">
+      </div>
+      
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <strong style="font-size:12px;color:var(--text-primary);">Personalización</strong>
+          <p style="margin:2px 0 0;font-size:11px;color:var(--text-muted);">Guarda filtros y layouts específicos.</p>
+        </div>
+        <input type="checkbox" id="privacy-chk-marketing" checked style="accent-color:var(--accent-purple);width:16px;height:16px;cursor:pointer;">
+      </div>
+    </div>
+
+    <div id="privacy-main-buttons" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;">
+      <button id="privacy-btn-config" style="
+        background:none;border:1px solid var(--border-color, rgba(255,255,255,0.08));
+        color:var(--text-secondary, #94a3b8);padding:8px 14px;border-radius:8px;
+        font-size:12px;cursor:pointer;transition:all 0.15s;font-weight:500;
+      ">Configurar</button>
+      <button id="privacy-btn-reject" style="
+        background:rgba(255, 255, 255, 0.03);border:1px solid var(--border-color, rgba(255,255,255,0.08));
+        color:var(--text-secondary, #94a3b8);padding:8px 14px;border-radius:8px;
+        font-size:12px;cursor:pointer;transition:all 0.15s;font-weight:500;
+      ">Rechazar</button>
+      <button id="privacy-btn-accept" style="
+        background:var(--accent-purple, #7c3aed);border:none;
+        color:#fff;padding:8px 16px;border-radius:8px;
+        font-size:12px;cursor:pointer;transition:all 0.15s;font-weight:600;
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+      ">Aceptar todo</button>
+    </div>
+
+    <div id="privacy-config-buttons" style="display:none;gap:8px;justify-content:flex-end;">
+      <button id="privacy-btn-back" style="
+        background:none;border:1px solid var(--border-color, rgba(255,255,255,0.08));
+        color:var(--text-secondary, #94a3b8);padding:8px 14px;border-radius:8px;
+        font-size:12px;cursor:pointer;transition:all 0.15s;font-weight:500;
+      ">Volver</button>
+      <button id="privacy-btn-save" style="
+        background:var(--accent-purple, #7c3aed);border:none;
+        color:#fff;padding:8px 16px;border-radius:8px;
+        font-size:12px;cursor:pointer;transition:all 0.15s;font-weight:600;
+        box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+      ">Guardar selección</button>
+    </div>
+  `;
+
+  document.body.appendChild(banner);
+
+  setTimeout(() => {
+    banner.style.opacity = '1';
+    banner.style.transform = 'translateY(0)';
+  }, 100);
+
+  const hideBanner = () => {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateY(100px)';
+    setTimeout(() => banner.remove(), 500);
+  };
+
+  document.getElementById('privacy-btn-accept').addEventListener('click', () => {
+    localStorage.setItem('gespropec_privacy_consent', JSON.stringify({
+      necessary: true,
+      analytics: true,
+      customization: true
+    }));
+    hideBanner();
+  });
+
+  document.getElementById('privacy-btn-reject').addEventListener('click', () => {
+    localStorage.setItem('gespropec_privacy_consent', JSON.stringify({
+      necessary: true,
+      analytics: false,
+      customization: false
+    }));
+    hideBanner();
+  });
+
+  const mainButtons = document.getElementById('privacy-main-buttons');
+  const configButtons = document.getElementById('privacy-config-buttons');
+  const configPanel = document.getElementById('privacy-config-panel');
+
+  document.getElementById('privacy-btn-config').addEventListener('click', () => {
+    mainButtons.style.display = 'none';
+    configButtons.style.display = 'flex';
+    configPanel.style.display = 'block';
+  });
+
+  document.getElementById('privacy-btn-back').addEventListener('click', () => {
+    mainButtons.style.display = 'flex';
+    configButtons.style.display = 'none';
+    configPanel.style.display = 'none';
+  });
+
+  document.getElementById('privacy-btn-save').addEventListener('click', () => {
+    const isAnalytics = document.getElementById('privacy-chk-analytics').checked;
+    const isCustomization = document.getElementById('privacy-chk-marketing').checked;
+    localStorage.setItem('gespropec_privacy_consent', JSON.stringify({
+      necessary: true,
+      analytics: isAnalytics,
+      customization: isCustomization
+    }));
+    hideBanner();
+  });
+
+  const applyBtnEffects = (btnId, isPrimary) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.addEventListener('mouseenter', () => {
+      if (isPrimary) {
+        btn.style.background = '#8b5cf6';
+        btn.style.transform = 'translateY(-1px)';
+        btn.style.boxShadow = '0 6px 16px rgba(124, 58, 237, 0.35)';
+      } else {
+        btn.style.background = 'rgba(255, 255, 255, 0.08)';
+        btn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+      }
+    });
+    btn.addEventListener('mouseleave', () => {
+      if (isPrimary) {
+        btn.style.background = 'var(--accent-purple, #7c3aed)';
+        btn.style.transform = 'translateY(0)';
+        btn.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.2)';
+      } else {
+        btn.style.background = btnId === 'privacy-btn-reject' ? 'rgba(255, 255, 255, 0.03)' : 'none';
+        btn.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+      }
+    });
+  };
+
+  applyBtnEffects('privacy-btn-accept', true);
+  applyBtnEffects('privacy-btn-reject', false);
+  applyBtnEffects('privacy-btn-config', false);
+  applyBtnEffects('privacy-btn-back', false);
+  applyBtnEffects('privacy-btn-save', true);
 }
