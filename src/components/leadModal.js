@@ -423,6 +423,67 @@ function setupModalDOM() {
         }
       });
 
+      let finalAgent = agent;
+      if (pipelineState !== '' && agent === 'unassigned') {
+        const textToSearch = [
+          name,
+          company,
+          website,
+          socials,
+          JSON.stringify(customFields),
+          oldLead.sector || '',
+          oldLead.entity_plural || ''
+        ].join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        let detectedAgent = null;
+        if (
+          textToSearch.includes('canin') || 
+          textToSearch.includes('perro') || 
+          textToSearch.includes('dog') || 
+          textToSearch.includes('mascota') || 
+          textToSearch.includes('veterinari') ||
+          textToSearch.includes('grooming') ||
+          textToSearch.includes('felina') ||
+          textToSearch.includes('gato')
+        ) {
+          detectedAgent = 'jordan';
+        } else if (
+          textToSearch.includes('corredur') || 
+          textToSearch.includes('segur') || 
+          textToSearch.includes('broker') || 
+          textToSearch.includes('mutua') || 
+          textToSearch.includes('ksm') ||
+          textToSearch.includes('asegur') ||
+          textToSearch.includes('peritaje') ||
+          textToSearch.includes('asistencia')
+        ) {
+          detectedAgent = 'sandra';
+        }
+
+        if (!detectedAgent) {
+          const savedActive = localStorage.getItem('gespropec_active_agents');
+          if (savedActive) {
+            try {
+              const activeList = JSON.parse(savedActive);
+              const hasJordan = activeList.includes('jordan');
+              const hasSandra = activeList.includes('sandra');
+              if (hasJordan && !hasSandra) {
+                detectedAgent = 'jordan';
+              } else if (hasSandra && !hasJordan) {
+                detectedAgent = 'sandra';
+              }
+            } catch (errVal) {
+              console.error(errVal);
+            }
+          }
+        }
+
+        if (detectedAgent) {
+          finalAgent = detectedAgent;
+          document.getElementById('edit-agent').value = detectedAgent;
+        }
+      }
+
       const updated = {
         ...oldLead,
         name,
@@ -432,10 +493,14 @@ function setupModalDOM() {
         website,
         socials,
         status,
-        agent,
+        agent: finalAgent,
         pipelineState,
         customFields
       };
+
+      if (oldLead.agent !== finalAgent) {
+        await addLog(currentLeadId, 'system', `Agente asignado automáticamente a "${finalAgent}" (antes "${oldLead.agent || 'unassigned'}") al guardar cambios con un estado de seguimiento activo.`);
+      }
 
       currentLead = updated;
       await updateLead(updated);

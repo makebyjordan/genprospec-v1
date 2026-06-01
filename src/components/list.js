@@ -485,14 +485,82 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       
       const prevVal = lead.pipelineState || 'ninguno';
       lead.pipelineState = newVal;
+
+      let agentUpdated = false;
+      if (newVal !== '') {
+        const textToSearch = [
+          lead.name || '',
+          lead.company || '',
+          lead.website || '',
+          lead.socials || '',
+          JSON.stringify(lead.customFields || {}),
+          lead.sector || '',
+          lead.entity_plural || ''
+        ].join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        let detectedAgent = null;
+        if (
+          textToSearch.includes('canin') || 
+          textToSearch.includes('perro') || 
+          textToSearch.includes('dog') || 
+          textToSearch.includes('mascota') || 
+          textToSearch.includes('veterinari') ||
+          textToSearch.includes('grooming') ||
+          textToSearch.includes('felina') ||
+          textToSearch.includes('gato')
+        ) {
+          detectedAgent = 'jordan';
+        } else if (
+          textToSearch.includes('corredur') || 
+          textToSearch.includes('segur') || 
+          textToSearch.includes('broker') || 
+          textToSearch.includes('mutua') || 
+          textToSearch.includes('ksm') ||
+          textToSearch.includes('asegur') ||
+          textToSearch.includes('peritaje') ||
+          textToSearch.includes('asistencia')
+        ) {
+          detectedAgent = 'sandra';
+        }
+
+        if (!detectedAgent && (!lead.agent || lead.agent === 'unassigned')) {
+          const savedActive = localStorage.getItem('gespropec_active_agents');
+          if (savedActive) {
+            try {
+              const activeList = JSON.parse(savedActive);
+              const hasJordan = activeList.includes('jordan');
+              const hasSandra = activeList.includes('sandra');
+              if (hasJordan && !hasSandra) {
+                detectedAgent = 'jordan';
+              } else if (hasSandra && !hasJordan) {
+                detectedAgent = 'sandra';
+              }
+            } catch (errVal) {
+              console.error(errVal);
+            }
+          }
+        }
+
+        if (detectedAgent && lead.agent !== detectedAgent) {
+          const prevAgent = lead.agent || 'unassigned';
+          lead.agent = detectedAgent;
+          agentUpdated = true;
+          await addLog(leadId, 'system', `Asignado automáticamente al agente "${detectedAgent}" (antes "${prevAgent}") por tener un estado de seguimiento activo.`);
+        }
+      }
+      
       await updateLead(lead);
       await addLog(leadId, 'system', `Estado de seguimiento cambiado de "${prevVal}" a "${newVal || 'ninguno'}" desde la Lista.`);
       
-      // Update select styling dynamically
-      const config = PIPELINE_STATES[newVal] || { label: 'Seleccionar...', color: '#94a3b8' };
-      select.style.background = `${config.color}15`;
-      select.style.color = config.color;
-      select.style.borderColor = `${config.color}40`;
+      if (agentUpdated) {
+        await renderList(containerId);
+      } else {
+        // Update select styling dynamically
+        const config = PIPELINE_STATES[newVal] || { label: 'Seleccionar...', color: '#94a3b8' };
+        select.style.background = `${config.color}15`;
+        select.style.color = config.color;
+        select.style.borderColor = `${config.color}40`;
+      }
       
       if (onListUpdatedCallback) onListUpdatedCallback();
     });
