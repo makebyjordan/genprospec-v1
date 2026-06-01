@@ -361,3 +361,41 @@ export async function getFilteredReminders() {
   
   return reminders.filter(rem => validLeadIds.has(rem.leadId));
 }
+
+// Map pipelineState to status
+export function getStatusFromPipelineState(pipelineState) {
+  if (!pipelineState) return 'new';
+  
+  const wonStates = ['firmado', 'haciendo', 'cobro parcial', 'cobro total', 'implementado', 'con mensualidad', 'finalizado'];
+  if (wonStates.includes(pipelineState)) return 'won';
+  
+  if (pipelineState === 'descartado') return 'lost';
+  
+  const contactedStates = ['enviado', 'contestado', 'llamar'];
+  if (contactedStates.includes(pipelineState)) return 'contacted';
+  
+  const noResponseStates = ['no contesta'];
+  if (noResponseStates.includes(pipelineState)) return 'no-response';
+  
+  const interestedStates = ['pide info', 'cuanto cuesta', 'podemos quedar', 'mas info', 'presupuesto'];
+  if (interestedStates.includes(pipelineState)) return 'interested';
+  
+  const meetingStates = ['cita', 'envio demo'];
+  if (meetingStates.includes(pipelineState)) return 'meeting';
+  
+  return 'new';
+}
+
+// Map status to default pipelineState
+export function getDefaultPipelineStateFromStatus(status) {
+  switch (status) {
+    case 'new': return '';
+    case 'contacted': return 'enviado';
+    case 'no-response': return 'no contesta';
+    case 'interested': return 'pide info';
+    case 'meeting': return 'cita';
+    case 'won': return 'firmado';
+    case 'lost': return 'descartado';
+    default: return '';
+  }
+}

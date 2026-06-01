@@ -9,7 +9,8 @@ import {
   addLog, 
   addReminder,
   exportDatabase, 
-  importDatabase 
+  importDatabase,
+  getDefaultPipelineStateFromStatus
 } from './db.js';
 import { initBoard, renderBoard, STAGES } from './components/board.js';
 import { initLeadModal, openLeadDrawer } from './components/leadModal.js';
@@ -823,7 +824,8 @@ function setupQuickAddUI() {
         website,
         socials,
         agent,
-        status: 'new' // Start as New column
+        status: 'new', // Start as New column
+        pipelineState: ''
       };
 
       await addLead(newLead);
@@ -905,7 +907,8 @@ function setupClientsUI() {
           website,
           socials,
           agent,
-          status: 'won' // Direct Client status
+          status: 'won', // Direct Client status
+          pipelineState: 'firmado'
         };
 
         await addLead(newClient);
@@ -936,8 +939,8 @@ async function renderClientsTable(searchQuery = '') {
   try {
     const leads = await getLeadsFilteredByAgent();
     
-    // Filter by clients (status 'won')
-    let clients = leads.filter(l => l.status === 'won');
+    // Filter by active clients/leads (status not new, lost, or archived)
+    let clients = leads.filter(l => l.status !== 'new' && l.status !== 'lost' && l.status !== 'archived');
 
     // Filter by search query if any
     if (searchQuery) {
@@ -953,7 +956,7 @@ async function renderClientsTable(searchQuery = '') {
       tbody.innerHTML = `
         <tr>
           <td colspan="5" style="text-align:center; color:var(--text-muted); padding:32px 0;">
-            ${searchQuery ? 'No se encontraron clientes que coincidan con la búsqueda.' : 'No tienes clientes registrados en tu cartera todavía.'}
+            ${searchQuery ? 'No se encontraron clientes que coincidan con la búsqueda.' : 'No tienes clientes o prospectos activos en tu cartera todavía.'}
           </td>
         </tr>
       `;
@@ -990,9 +993,9 @@ async function renderClientsTable(searchQuery = '') {
           <td style="text-align:right;">
             <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center;">
               <select class="input-field row-status-select" data-id="${client.id}" style="padding:4px 8px; font-size:12px; width:auto; height:auto; margin:0; background-color: var(--bg-surface);">
-                <option value="won" selected>Cliente Activo</option>
-                <option value="contacted">Mover a Seguimiento</option>
-                <option value="lost">Descartar Cliente</option>
+                <option value="won" ${client.status === 'won' ? 'selected' : ''}>Cliente Activo</option>
+                <option value="contacted" ${client.status === 'contacted' ? 'selected' : ''}>Mover a Seguimiento</option>
+                <option value="lost" ${client.status === 'lost' ? 'selected' : ''}>Descartar Cliente</option>
               </select>
               <button class="btn btn-secondary btn-view-client-drawer" data-id="${client.id}" title="Ver Ficha de Seguimiento" style="padding: 4px 10px; font-size:12px;">
                 👁️ Ficha
@@ -1045,21 +1048,27 @@ async function renderClientsTable(searchQuery = '') {
       select.addEventListener('change', async () => {
         const leadId = select.dataset.id;
         const newStatus = select.value;
-        if (newStatus === 'won') return;
+        const lead = clients.find(l => l.id === leadId);
+        if (!lead || newStatus === lead.status) return;
 
         try {
-          const lead = leads.find(l => l.id === leadId);
-          if (lead) {
-            const oldStatusName = STAGES[lead.status]?.label || lead.status;
-            const newStatusName = STAGES[newStatus]?.label;
-            lead.status = newStatus;
+          const oldStatusName = STAGES[lead.status]?.label || lead.status;
+          const newStatusName = STAGES[newStatus]?.label;
+          lead.status = newStatus;
 
-            await updateLead(lead);
-            await addLog(lead.id, 'system', `Estado cambiado desde tabla Clientes: de "${oldStatusName}" a "${newStatusName}"`);
-            
-            alert(`Cliente movido a la etapa "${newStatusName}" con éxito.`);
-            await handleDatabaseUpdate();
+          // Sincronizar pipelineState
+          const prevPipeline = lead.pipelineState || '';
+          const newPipeline = getDefaultPipelineStateFromStatus(newStatus);
+          if (prevPipeline !== newPipeline) {
+            lead.pipelineState = newPipeline;
+            await addLog(lead.id, 'system', `Fase de seguimiento cambiada automáticamente a "${newPipeline || 'ninguno'}" desde Clientes.`);
           }
+
+          await updateLead(lead);
+          await addLog(lead.id, 'system', `Estado cambiado desde tabla Clientes: de "${oldStatusName}" a "${newStatusName}"`);
+          
+          alert(`Cliente movido a la etapa "${newStatusName}" con éxito.`);
+          await handleDatabaseUpdate();
         } catch (err) {
           console.error(err);
           alert('Error al actualizar el estado.');

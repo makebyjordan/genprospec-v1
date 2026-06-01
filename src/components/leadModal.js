@@ -7,7 +7,9 @@ import {
   getRemindersForLead, 
   addReminder, 
   updateReminder, 
-  deleteReminder 
+  deleteReminder,
+  getStatusFromPipelineState,
+  getDefaultPipelineStateFromStatus
 } from '../db.js';
 import { STAGES } from './board.js';
 import { PIPELINE_STATES } from './list.js';
@@ -349,6 +351,22 @@ function setupModalDOM() {
   // Setup Event Listeners
   backdrop.addEventListener('click', closeLeadDrawer);
   document.getElementById('btn-close-drawer').addEventListener('click', closeLeadDrawer);
+
+  // Sincronización en tiempo real de los dropdowns en la UI del modal
+  const modalPipelineStateSelect = document.getElementById('edit-pipeline-state');
+  const modalStatusSelect = document.getElementById('edit-status');
+
+  if (modalPipelineStateSelect && modalStatusSelect) {
+    modalPipelineStateSelect.addEventListener('change', () => {
+      const val = modalPipelineStateSelect.value;
+      modalStatusSelect.value = getStatusFromPipelineState(val);
+    });
+
+    modalStatusSelect.addEventListener('change', () => {
+      const val = modalStatusSelect.value;
+      modalPipelineStateSelect.value = getDefaultPipelineStateFromStatus(val);
+    });
+  }
 
   // Add custom field button listener
   document.getElementById('btn-add-custom-field').addEventListener('click', () => {

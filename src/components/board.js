@@ -1,4 +1,4 @@
-import { getLeadsFilteredByAgent, getLeadById, updateLead, deleteLead, addLog } from '../db.js';
+import { getLeadsFilteredByAgent, getLeadById, updateLead, deleteLead, addLog, getDefaultPipelineStateFromStatus } from '../db.js';
 
 // Status configurations
 export const STAGES = {
@@ -170,6 +170,40 @@ export async function renderBoard(containerId) {
           const oldStatusName = STAGES[lead.status]?.label || lead.status;
           const newStatusName = STAGES[newStatus]?.label;
           lead.status = newStatus;
+          
+          // Sincronizar el pipelineState
+          const prevPipeline = lead.pipelineState || '';
+          const newPipeline = getDefaultPipelineStateFromStatus(newStatus);
+          if (prevPipeline !== newPipeline) {
+            lead.pipelineState = newPipeline;
+            
+            const pipelineLabels = {
+              'enviado': 'Enviado',
+              'contestado': 'Contestado',
+              'no contesta': 'No contesta',
+              'pide info': 'Pide info',
+              'cuanto cuesta': 'Cuánto cuesta',
+              'podemos quedar': 'Podemos quedar',
+              'mas info': 'Más info',
+              'cita': 'Cita',
+              'envio demo': 'Envío demo',
+              'llamar': 'Llamar',
+              'presupuesto': 'Presupuesto',
+              'firmado': 'Firmado',
+              'haciendo': 'Haciendo',
+              'cobro parcial': 'Cobro parcial',
+              'cobro total': 'Cobro total',
+              'implementado': 'Implementado',
+              'con mensualidad': 'Con mensualidad',
+              'finalizado': 'Finalizado',
+              'descartado': 'Descartado',
+              '': 'ninguno'
+            };
+            const prevLabel = pipelineLabels[prevPipeline] || prevPipeline || 'ninguno';
+            const newLabel = pipelineLabels[newPipeline] || newPipeline || 'ninguno';
+            await addLog(lead.id, 'system', `Fase de seguimiento cambiada automáticamente de "${prevLabel}" a "${newLabel}" al arrastrar en el Kanban.`);
+          }
+
           await updateLead(lead);
           await addLog(lead.id, 'system', `Estado cambiado de "${oldStatusName}" a "${newStatusName}"`);
           renderBoard(containerId);
@@ -316,6 +350,7 @@ function buildArchivedCard(lead, containerId) {
     const full = await getLeadById(lead.id);
     if (!full) return;
     full.status = 'new';
+    full.pipelineState = '';
     await updateLead(full);
     await addLog(full.id, 'system', 'Prospecto restaurado desde el archivo.');
     renderBoard(containerId);

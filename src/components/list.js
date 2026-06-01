@@ -1,4 +1,4 @@
-import { getLeadsFilteredByAgent, getAllLeads, getLeadById, updateLead, deleteLead, addLog } from '../db.js';
+import { getLeadsFilteredByAgent, getAllLeads, getLeadById, updateLead, deleteLead, addLog, getStatusFromPipelineState } from '../db.js';
 
 export const PIPELINE_STATES = {
   'enviado': { label: 'Enviado', color: '#60a5fa' },
@@ -486,6 +486,29 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       const prevVal = lead.pipelineState || 'ninguno';
       lead.pipelineState = newVal;
 
+      // Sincronizar el estado de la oportunidad basado en la fase de seguimiento
+      const prevStatus = lead.status || 'new';
+      const newStatus = getStatusFromPipelineState(newVal);
+      let statusUpdated = false;
+      if (prevStatus !== newStatus) {
+        lead.status = newStatus;
+        statusUpdated = true;
+        
+        const statusLabels = {
+          new: 'Nuevo',
+          contacted: 'Contactado',
+          'no-response': 'Sin Respuesta',
+          interested: 'Interesado',
+          meeting: 'Reunión',
+          won: 'Ganado',
+          lost: 'Descartado',
+          archived: 'Archivado'
+        };
+        const prevLabel = statusLabels[prevStatus] || prevStatus;
+        const newLabel = statusLabels[newStatus] || newStatus;
+        await addLog(leadId, 'system', `Estado cambiado automáticamente de "${prevLabel}" a "${newLabel}" desde la Lista.`);
+      }
+
       let agentUpdated = false;
       if (newVal !== '') {
         const textToSearch = [
@@ -552,7 +575,7 @@ function wireTable(leads, standardCols, customKeys, containerId, isArchived) {
       await updateLead(lead);
       await addLog(leadId, 'system', `Estado de seguimiento cambiado de "${prevVal}" a "${newVal || 'ninguno'}" desde la Lista.`);
       
-      if (agentUpdated) {
+      if (agentUpdated || statusUpdated) {
         await renderList(containerId);
       } else {
         // Update select styling dynamically
