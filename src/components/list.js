@@ -73,6 +73,25 @@ function agentBadge(agent) {
   return `<span class="list-agent-badge unassigned">Sin asignar</span>`;
 }
 
+export function buildAgentSelectHTML(lead) {
+  const currentVal = lead.agent || '';
+  let color = '#94a3b8'; // Sin asignar
+  if (currentVal === 'jordan') color = '#a78bfa';
+  if (currentVal === 'sandra') color = '#f472b6';
+
+  return `
+    <select class="agent-select" data-leadid="${lead.id}" style="
+      background: ${color}15;
+      color: ${color};
+      border: 1px solid ${color}40;
+    ">
+      <option value="" ${currentVal === '' ? 'selected' : ''}>Sin asignar</option>
+      <option value="jordan" ${currentVal === 'jordan' ? 'selected' : ''}>Jordan</option>
+      <option value="sandra" ${currentVal === 'sandra' ? 'selected' : ''}>Sandra</option>
+    </select>
+  `;
+}
+
 function statusBadge(status) {
   const map = {
     new:            { label: 'Nuevo',        color: '#818cf8' },
@@ -704,6 +723,12 @@ export async function renderList(containerId) {
     wireTable(active, containerId, false);
     wireTable(archived, containerId, true);
 
+    // Initialize column resizing
+    const activeTable = document.getElementById('list-table-active');
+    if (activeTable) initColumnResizing(activeTable);
+    const archivedTable = document.getElementById('list-table-archived');
+    if (archivedTable) initColumnResizing(archivedTable);
+
   } catch (err) {
     console.error('Error rendering list:', err);
     container.innerHTML = '<div class="notifications-empty" style="color:var(--accent-red)">Error al cargar la lista.</div>';
@@ -722,11 +747,21 @@ function buildTableHTML(leads, columnsConfig, tableId) {
     </div>`;
   }
 
-  const headerCells = visibleCols.map(col =>
-    `<th class="list-th">${col.label}</th>`
-  ).join('');
+  const savedWidths = JSON.parse(localStorage.getItem('gespropec_column_widths') || '{}');
 
-  const rows = leads.map(lead => {
+  const indexWidth = savedWidths['__index'] ? `width: ${savedWidths['__index']}px; min-width: ${savedWidths['__index']}px;` : 'width: 50px; min-width: 50px;';
+  const actionsWidth = savedWidths['__actions'] ? `width: ${savedWidths['__actions']}px; min-width: ${savedWidths['__actions']}px;` : 'width: 90px; min-width: 90px;';
+
+  const indexHeader = `<th class="list-th list-th-index" data-col-key="__index" style="${indexWidth}">#</th>`;
+  const actionsHeader = `<th class="list-th list-th-actions" data-col-key="__actions" style="${actionsWidth}">Acciones</th>`;
+
+  const headerCells = visibleCols.map(col => {
+    const widthVal = savedWidths[col.key];
+    const styleAttr = widthVal ? `style="width: ${widthVal}px; min-width: ${widthVal}px;"` : '';
+    return `<th class="list-th" data-col-key="${col.key}" ${styleAttr}>${col.label}</th>`;
+  }).join('');
+
+  const rows = leads.map((lead, index) => {
     const other = otherAgent(lead.agent);
     const otherLabel = otherAgentLabel(lead.agent);
 
@@ -764,7 +799,7 @@ function buildTableHTML(leads, columnsConfig, tableId) {
         return `<td class="list-td list-td-nobold">${statusBadge(lead.status)}</td>`;
       }
       if (col.key === 'agent') {
-        return `<td class="list-td list-td-nobold">${agentBadge(lead.agent)}</td>`;
+        return `<td class="list-td list-td-nobold">${buildAgentSelectHTML(lead)}</td>`;
       }
       if (col.key === 'website' && lead[col.key]) {
         return `<td class="list-td list-td-nobold" title="${lead[col.key]}">
@@ -826,8 +861,11 @@ function buildTableHTML(leads, columnsConfig, tableId) {
       >${val || '<span class="list-empty-cell">—</span>'}</td>`;
     }).join('');
 
+    const indexCell = `<td class="list-td list-td-index">${index + 1}</td>`;
+
     return `
       <tr class="list-row" data-id="${lead.id}" data-agent="${lead.agent || ''}" data-search="${buildSearchStr(lead, columnsConfig)}">
+        ${indexCell}
         <td class="list-td list-td-actions">
           <div class="list-row-actions">
             <!-- Edit -->
@@ -875,12 +913,17 @@ function buildTableHTML(leads, columnsConfig, tableId) {
   return `
     <table class="list-table" id="list-table-${tableId}">
       <thead>
-        <tr><th class="list-th list-th-actions">Acciones</th>${headerCells}</tr>
+        <tr>
+          ${indexHeader}
+          ${actionsHeader}
+          ${headerCells}
+        </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
   `;
 }
+
 
 function buildSearchStr(lead, columnsConfig) {
   const parts = [lead.name, lead.company, lead.phone, lead.email, lead.agent];
@@ -1030,6 +1073,28 @@ function wireTable(leads, containerId, isArchived) {
         select.style.borderColor = `${config.color}40`;
       }
       
+      if (onListUpdatedCallback) onListUpdatedCallback();
+    });
+  });
+
+  // Wire agent select click & changes
+  table.querySelectorAll('.agent-select').forEach(select => {
+    select.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    select.addEventListener('change', async (e) => {
+      const leadId = select.dataset.leadid;
+      const newVal = select.value;
+      const lead = await getLeadById(leadId);
+      if (!lead) return;
+
+      const prevVal = lead.agent || 'sin asignar';
+      lead.agent = newVal;
+
+      await updateLead(lead);
+      await addLog(leadId, 'system', `Agente cambiado manualmente de "${prevVal}" a "${newVal || 'sin asignar'}" desde la Lista.`);
+
+      await renderList(containerId);
       if (onListUpdatedCallback) onListUpdatedCallback();
     });
   });
@@ -1337,3 +1402,68 @@ async function syncSingleSheetRows(rows, defaultAgent) {
 
   return { countAdded, countUpdated };
 }
+
+/* ==========================================================================
+   COLUMN RESIZING SYSTEM
+   ========================================================================== */
+function initColumnResizing(table) {
+  const headers = table.querySelectorAll('th.list-th');
+  headers.forEach(th => {
+    if (th.querySelector('.col-resize-handle')) return;
+
+    const handle = document.createElement('div');
+    handle.className = 'col-resize-handle';
+    th.appendChild(handle);
+
+    let startX = 0;
+    let startWidth = 0;
+
+    const onMouseDown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Lock all header widths to their current actual offsetWidth
+      const allHeaders = table.querySelectorAll('th.list-th');
+      allHeaders.forEach(header => {
+        if (!header.style.width) {
+          const currentWidth = header.offsetWidth;
+          header.style.width = `${currentWidth}px`;
+          header.style.minWidth = `${currentWidth}px`;
+        }
+      });
+
+      startX = e.pageX;
+      startWidth = th.offsetWidth;
+
+      handle.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+
+      const onMouseMove = (moveEvent) => {
+        const diffX = moveEvent.pageX - startX;
+        const newWidth = Math.max(40, startWidth + diffX);
+        th.style.width = `${newWidth}px`;
+        th.style.minWidth = `${newWidth}px`;
+      };
+
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        handle.classList.remove('resizing');
+        document.body.style.cursor = '';
+
+        const colKey = th.dataset.colKey;
+        if (colKey) {
+          const savedWidths = JSON.parse(localStorage.getItem('gespropec_column_widths') || '{}');
+          savedWidths[colKey] = th.offsetWidth;
+          localStorage.setItem('gespropec_column_widths', JSON.stringify(savedWidths));
+        }
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    handle.addEventListener('mousedown', onMouseDown);
+  });
+}
+
