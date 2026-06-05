@@ -211,6 +211,7 @@ function makeEditable(td, lead, fieldKey, isCustom, rawKey, containerId) {
 export function getColumnsConfig(leads) {
   const customKeys = collectCustomFieldKeys(leads);
   const standardCols = [
+    { key: 'syncStatus', label: 'Sincro' },
     { key: 'pipelineState', label: 'Seguimiento' },
     { key: 'name',    label: 'Nombre' },
     { key: 'company', label: 'Empresa' },
@@ -730,6 +731,32 @@ function buildTableHTML(leads, columnsConfig, tableId) {
     const otherLabel = otherAgentLabel(lead.agent);
 
     const cells = visibleCols.map(col => {
+      if (col.key === 'syncStatus') {
+        const lastSync = localStorage.getItem('gespropec_last_sync_time');
+        const lastSyncTime = lastSync ? parseInt(lastSync, 10) : 0;
+        const createdTime = lead.createdAt ? new Date(lead.createdAt).getTime() : 0;
+        const updatedTime = lead.updatedAt ? new Date(lead.updatedAt).getTime() : 0;
+
+        let badgeHtml = '';
+        if (lastSyncTime > 0 && createdTime >= lastSyncTime) {
+          badgeHtml = `<span class="sync-badge new" title="Añadido nuevo en la última sincronización" style="
+            width: 8px; height: 8px; border-radius: 50%; background-color: #10b981; display: inline-block;
+            box-shadow: 0 0 8px #10b981;
+          "></span>`;
+        } else if (lastSyncTime > 0 && updatedTime >= lastSyncTime && Math.abs(updatedTime - createdTime) > 1000) {
+          badgeHtml = `<span class="sync-badge modified" title="Modificado en la última sincronización" style="
+            width: 8px; height: 8px; border-radius: 50%; background-color: #3b82f6; display: inline-block;
+            box-shadow: 0 0 8px #3b82f6;
+          "></span>`;
+        } else {
+          badgeHtml = `<span class="sync-badge unchanged" title="Sin cambios" style="
+            width: 8px; height: 8px; border-radius: 50%; background-color: #64748b; display: inline-block;
+            opacity: 0.4;
+          "></span>`;
+        }
+
+        return `<td class="list-td list-td-nobold" style="text-align: center; vertical-align: middle; width: 60px;">${badgeHtml}</td>`;
+      }
       if (col.key === 'pipelineState') {
         return `<td class="list-td list-td-nobold" style="padding: 6px 14px; min-width: 140px;">${buildPipelineSelectHTML(lead)}</td>`;
       }
@@ -747,7 +774,7 @@ function buildTableHTML(leads, columnsConfig, tableId) {
       const val = col.isCustom
         ? (lead.customFields?.[col.rawKey] ?? '')
         : (lead[col.key] ?? '');
-      const isEditable = col.key !== 'status' && col.key !== 'agent' && col.key !== 'pipelineState';
+      const isEditable = col.key !== 'status' && col.key !== 'agent' && col.key !== 'pipelineState' && col.key !== 'syncStatus';
       
       const isPersonalizedMsgCol = col.label && (col.label.toLowerCase().trim() === 'mensaje personalizado' || col.label.toLowerCase().trim() === 'mensaje_personalizado');
 
@@ -1098,6 +1125,15 @@ function exportToCSV(leads, columnsConfig) {
   const header = visibleCols.map(c => escape(c.label)).join(',');
   const rows = leads.map(lead =>
     visibleCols.map(col => {
+      if (col.key === 'syncStatus') {
+        const lastSync = localStorage.getItem('gespropec_last_sync_time');
+        const lastSyncTime = lastSync ? parseInt(lastSync, 10) : 0;
+        const createdTime = lead.createdAt ? new Date(lead.createdAt).getTime() : 0;
+        const updatedTime = lead.updatedAt ? new Date(lead.updatedAt).getTime() : 0;
+        if (lastSyncTime > 0 && createdTime >= lastSyncTime) return escape('Nuevo');
+        if (lastSyncTime > 0 && updatedTime >= lastSyncTime && Math.abs(updatedTime - createdTime) > 1000) return escape('Modificado');
+        return escape('Sin cambios');
+      }
       if (col.isCustom) return escape(lead.customFields?.[col.rawKey] ?? '');
       if (col.key === 'agent') return escape(lead.agent || 'unassigned');
       return escape(lead[col.key] ?? '');
@@ -1165,6 +1201,9 @@ const SANDRA_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1LI9DNodTNW7joO
 
 export async function syncGoogleSheetsLeads() {
   try {
+    const syncStartTime = Date.now() - 2000; // 2 seconds margin
+    localStorage.setItem('gespropec_last_sync_time', syncStartTime.toString());
+
     const jordanCsv = await fetchCSV(JORDAN_SHEET_URL);
     const sandraCsv = await fetchCSV(SANDRA_SHEET_URL);
 
