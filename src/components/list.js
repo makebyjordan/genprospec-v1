@@ -1165,8 +1165,38 @@ function wireTable(leads, containerId, isArchived) {
       
       const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
       window.open(waUrl, '_blank');
+
+      // Auto change state to "enviado" in background (to avoid popup blocker)
+      const td = waBtn.closest('td');
+      const leadId = td ? td.dataset.leadid : null;
+      if (leadId) {
+        try {
+          const lead = await getLeadById(leadId);
+          if (lead && lead.pipelineState !== 'enviado') {
+            const prevPipeline = lead.pipelineState || 'ninguno';
+            lead.pipelineState = 'enviado';
+            
+            const prevStatus = lead.status || 'new';
+            const newStatus = getStatusFromPipelineState('enviado'); // 'contacted'
+            
+            if (prevStatus !== newStatus) {
+              lead.status = newStatus;
+              await addLog(leadId, 'system', `Estado cambiado automáticamente a "Contactado" al enviar mensaje por WhatsApp.`);
+            }
+            
+            await updateLead(lead);
+            await addLog(leadId, 'system', `Estado de seguimiento cambiado automáticamente de "${prevPipeline}" a "enviado" al enviar mensaje por WhatsApp.`);
+            
+            await renderList(containerId);
+            if (onListUpdatedCallback) onListUpdatedCallback();
+          }
+        } catch (dbErr) {
+          console.error('Error updating status after WhatsApp click:', dbErr);
+        }
+      }
       return;
     }
+
 
     const btn = e.target.closest('[data-action]');
     if (!btn) {
