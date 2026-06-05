@@ -1637,3 +1637,10 @@ body {
   font-weight: normal;
 }
 
+.list-whatsapp-msg-btn:hover {
+  transform: translateY(-50%) scale(1.15) !important;
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.5) !important;
+  filter: brightness(1.1);
+}
+
+

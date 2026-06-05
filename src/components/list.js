@@ -714,6 +714,49 @@ function buildTableHTML(leads, columnsConfig, tableId) {
         ? (lead.customFields?.[col.rawKey] ?? '')
         : (lead[col.key] ?? '');
       const isEditable = col.key !== 'status' && col.key !== 'agent' && col.key !== 'pipelineState';
+      
+      const isPersonalizedMsgCol = col.label && (col.label.toLowerCase().trim() === 'mensaje personalizado' || col.label.toLowerCase().trim() === 'mensaje_personalizado');
+
+      if (isPersonalizedMsgCol && val) {
+        return `<td class="list-td list-td-nobold${isEditable ? ' list-td-editable' : ''}"
+          data-field="${col.isCustom ? col.rawKey : col.key}"
+          data-custom="${col.isCustom ? '1' : '0'}"
+          data-leadid="${lead.id}"
+          title="${String(val).replace(/"/g, '&quot;')}"
+          style="position: relative; padding-right: 40px; min-width: 200px;"
+        >
+          <span style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 12px);">${val}</span>
+          <button class="list-whatsapp-msg-btn" 
+            data-msg="${String(val).replace(/"/g, '&quot;')}" 
+            data-phone="${lead.phone || ''}" 
+            title="Copiar mensaje y abrir WhatsApp"
+            style="
+              position: absolute;
+              right: 8px;
+              top: 50%;
+              transform: translateY(-50%);
+              background: #25D366;
+              border: none;
+              border-radius: 50%;
+              width: 24px;
+              height: 24px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              cursor: pointer;
+              box-shadow: 0 2px 6px rgba(37, 211, 102, 0.3);
+              transition: all 0.15s ease;
+              padding: 0;
+              z-index: 5;
+            "
+          >
+            <svg style="width: 14px; height: 14px; color: white;" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12.012 2c-5.506 0-9.988 4.482-9.988 9.988 0 1.758.455 3.479 1.322 4.996L2 22l5.166-1.353c1.464.8 3.111 1.218 4.846 1.218 5.507 0 9.989-4.482 9.989-9.988S17.519 2 12.012 2zm4.721 13.51c-.244.686-1.236 1.249-1.725 1.293-.47.042-1.07.135-3.154-.725-2.665-1.1-4.332-3.8-4.464-3.977-.13-.176-1.053-1.402-1.053-2.673 0-1.272.668-1.893.903-2.138.235-.245.518-.307.69-.307.173 0 .345 0 .495.008.16.008.375-.062.587.452.22.533.753 1.838.818 1.972.065.134.11.29.02.47-.09.18-.135.3-.27.456-.135.156-.285.347-.406.467-.135.134-.277.28-.119.553.157.273.7 1.15 1.5 1.865.986.877 1.815 1.15 2.072 1.278.257.128.409.106.564-.074.156-.18.67-.78.85-.924.18-.145.36-.123.606-.032.247.09 1.565.738 1.832.872.267.134.445.2.51.312.065.112.065.65-.18 1.336z"/>
+            </svg>
+          </button>
+        </td>`;
+      }
+
       return `<td class="list-td${col.key === 'name' ? '' : ' list-td-nobold'}${isEditable ? ' list-td-editable' : ''}"
         data-field="${col.isCustom ? col.rawKey : col.key}"
         data-custom="${col.isCustom ? '1' : '0'}"
@@ -931,6 +974,29 @@ function wireTable(leads, containerId, isArchived) {
   });
 
   table.addEventListener('click', async (e) => {
+    const waBtn = e.target.closest('.list-whatsapp-msg-btn');
+    if (waBtn) {
+      e.stopPropagation();
+      const msg = waBtn.dataset.msg || '';
+      const phone = waBtn.dataset.phone || '';
+      
+      try {
+        await navigator.clipboard.writeText(msg);
+        showToast('Mensaje copiado al portapapeles');
+      } catch (err) {
+        console.error('Error al copiar el mensaje:', err);
+      }
+
+      let cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.length === 9 && (cleanPhone.startsWith('6') || cleanPhone.startsWith('7'))) {
+        cleanPhone = '34' + cleanPhone;
+      }
+      
+      const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+      window.open(waUrl, '_blank');
+      return;
+    }
+
     const btn = e.target.closest('[data-action]');
     if (!btn) {
       const row = e.target.closest('.list-row');
@@ -1011,4 +1077,51 @@ function exportToCSV(leads, columnsConfig) {
   a.download = `gespropec-lista-${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function showToast(message) {
+  document.getElementById('list-toast-notification')?.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'list-toast-notification';
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translate(-50%, 20px);
+    background: rgba(15, 15, 22, 0.95);
+    border: 1px solid var(--accent-green, #10b981);
+    color: var(--text-primary, #fff);
+    padding: 12px 24px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  `;
+  toast.innerHTML = `
+    <span style="color:var(--accent-green, #10b981);display:flex;align-items:center;">
+      <svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+      </svg>
+    </span>
+    <span>${message}</span>
+  `;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translate(-50%, 0)';
+  }, 50);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translate(-50%, 20px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 2200);
 }
