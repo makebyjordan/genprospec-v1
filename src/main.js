@@ -125,6 +125,22 @@ async function refreshCurrentView() {
 async function handleDatabaseUpdate() {
   await refreshCurrentView();
   await refreshNotifications();
+  
+  // Auto-sync if enabled and connected
+  const isAutoSync = localStorage.getItem('gespropec_google_auto_sync') === 'true';
+  const token = localStorage.getItem('gespropec_google_access_token');
+  if (isAutoSync && token) {
+    syncToGoogleDrive(token)
+      .then(() => {
+        const timeStr = new Date().toLocaleTimeString();
+        const label = document.getElementById('google-last-sync-label');
+        if (label) label.textContent = `Última sincronización: Hoy a las ${timeStr} (Auto)`;
+        localStorage.setItem('gespropec_google_last_sync', `Hoy a las ${timeStr} (Auto)`);
+      })
+      .catch(err => {
+        console.warn('[Auto Sync] Failed:', err);
+      });
+  }
 }
 
 function handleLeadClick(leadId) {
@@ -757,6 +773,147 @@ function setupSettingsUI() {
       const key = geminiKeyInput.value.trim();
       localStorage.setItem('gespropec_gemini_api_key', key);
       alert('Configuración de API Key guardada con éxito.');
+    });
+  }
+
+  // ── GOOGLE DRIVE SYNC LOGIC ───────────────────────────────────
+  const googleClientIdInput = document.getElementById('settings-google-client-id');
+  const googleLoginBtn = document.getElementById('btn-google-login');
+  const googleLogoutBtn = document.getElementById('btn-google-logout');
+  const googlePushBtn = document.getElementById('btn-google-sync-push');
+  const googlePullBtn = document.getElementById('btn-google-sync-pull');
+  const googleAutoSyncChk = document.getElementById('settings-google-auto-sync');
+
+  updateGoogleSyncUI();
+
+  if (googleLoginBtn) {
+    googleLoginBtn.addEventListener('click', () => {
+      const clientId = googleClientIdInput ? googleClientIdInput.value.trim() : '';
+      if (!clientId) {
+        alert('Por favor, introduce tu Google OAuth Client ID.');
+        return;
+      }
+      
+      localStorage.setItem('gespropec_google_client_id', clientId);
+      
+      try {
+        if (typeof google === 'undefined') {
+          alert('La librería de Google no se ha cargado. Verifica tu conexión a internet.');
+          return;
+        }
+
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive.appdata email profile',
+          callback: async (tokenResponse) => {
+            if (tokenResponse.error) {
+              alert('Error al iniciar sesión con Google: ' + tokenResponse.error_description);
+              return;
+            }
+            
+            if (tokenResponse.access_token) {
+              const token = tokenResponse.access_token;
+              localStorage.setItem('gespropec_google_access_token', token);
+              
+              // Fetch profile info
+              try {
+                const userInfo = await fetchGoogleUserInfo(token);
+                if (userInfo) {
+                  localStorage.setItem('google_user_name', userInfo.name || userInfo.given_name || 'Usuario');
+                  localStorage.setItem('google_user_email', userInfo.email);
+                  localStorage.setItem('google_user_avatar', userInfo.picture || '');
+                }
+                
+                alert('Conexión con Google exitosa.');
+                updateGoogleSyncUI();
+              } catch (profileErr) {
+                console.error('Error fetching google profile info:', profileErr);
+                alert('Sesión iniciada, pero no pudimos cargar los detalles del perfil.');
+                updateGoogleSyncUI();
+              }
+            }
+          },
+        });
+        
+        client.requestAccessToken({ prompt: 'consent' });
+      } catch (err) {
+        console.error(err);
+        alert('Ocurrió un error al inicializar el login de Google.');
+      }
+    });
+  }
+
+  if (googleLogoutBtn) {
+    googleLogoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('gespropec_google_access_token');
+      localStorage.removeItem('google_user_name');
+      localStorage.removeItem('google_user_email');
+      localStorage.removeItem('google_user_avatar');
+      alert('Sesión de Google cerrada.');
+      updateGoogleSyncUI();
+    });
+  }
+
+  if (googlePushBtn) {
+    googlePushBtn.addEventListener('click', async () => {
+      const token = localStorage.getItem('gespropec_google_access_token');
+      if (!token) return;
+      
+      googlePushBtn.disabled = true;
+      googlePushBtn.textContent = '📤 Guardando...';
+      
+      try {
+        await syncToGoogleDrive(token);
+        const timeStr = new Date().toLocaleTimeString();
+        localStorage.setItem('gespropec_google_last_sync', `Hoy a las ${timeStr} (Manual)`);
+        alert('Copia de seguridad guardada con éxito en tu Google Drive.');
+        updateGoogleSyncUI();
+      } catch (err) {
+        console.error(err);
+        alert('Error al guardar en Google Drive.');
+      } finally {
+        googlePushBtn.disabled = false;
+        googlePushBtn.textContent = '📤 Guardar en Drive';
+      }
+    });
+  }
+
+  if (googlePullBtn) {
+    googlePullBtn.addEventListener('click', async () => {
+      const token = localStorage.getItem('gespropec_google_access_token');
+      if (!token) return;
+      
+      if (!confirm('¿Quieres descargar y restaurar los datos de tu cuenta de Google Drive? Esto SOBREESCRIBIRÁ todos tus datos locales actuales.')) {
+        return;
+      }
+      
+      googlePullBtn.disabled = true;
+      googlePullBtn.textContent = '📥 Cargando...';
+      
+      try {
+        const syncedAt = await loadFromGoogleDrive(token);
+        if (syncedAt) {
+          const dateStr = new Date(syncedAt).toLocaleString();
+          alert(`Datos restaurados con éxito. Copia del: ${dateStr}. La página se actualizará.`);
+          localStorage.setItem('gespropec_google_last_sync', `Descargado (Copia del ${dateStr})`);
+          await handleDatabaseUpdate();
+        } else {
+          alert('No se encontró ninguna copia de seguridad en tu Google Drive para esta aplicación.');
+        }
+        updateGoogleSyncUI();
+      } catch (err) {
+        console.error(err);
+        alert('Error al descargar desde Google Drive.');
+      } finally {
+        googlePullBtn.disabled = false;
+        googlePullBtn.textContent = '📥 Cargar de Drive';
+      }
+    });
+  }
+
+  if (googleAutoSyncChk) {
+    googleAutoSyncChk.addEventListener('change', () => {
+      localStorage.setItem('gespropec_google_auto_sync', googleAutoSyncChk.checked ? 'true' : 'false');
     });
   }
 }
@@ -1423,3 +1580,181 @@ function initPrivacyConsent() {
   applyBtnEffects('privacy-btn-back', false);
   applyBtnEffects('privacy-btn-save', true);
 }
+
+/* ==========================================================================
+   GOOGLE DRIVE BACKUP & SYNC FUNCTIONS
+   ========================================================================== */
+
+async function fetchGoogleUserInfo(accessToken) {
+  const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  if (!res.ok) {
+    throw new Error('Failed to fetch user info');
+  }
+  return await res.json();
+}
+
+async function handleGoogleApiError(response) {
+  if (response.status === 401) {
+    localStorage.removeItem('gespropec_google_access_token');
+    localStorage.removeItem('google_user_name');
+    localStorage.removeItem('google_user_email');
+    localStorage.removeItem('google_user_avatar');
+    alert('Tu sesión de Google ha expirado. Por favor, vuelve a iniciar sesión.');
+    updateGoogleSyncUI();
+    throw new Error('Google session expired');
+  }
+}
+
+async function syncToGoogleDrive(accessToken) {
+  const dump = await exportDatabase();
+  
+  const settings = {
+    gespropec_list_columns_config: localStorage.getItem('gespropec_list_columns_config'),
+    gespropec_column_widths: localStorage.getItem('gespropec_column_widths'),
+    gespropec_expand_messages: localStorage.getItem('gespropec_expand_messages'),
+    gespropec_gemini_api_key: localStorage.getItem('gespropec_gemini_api_key'),
+    gespropec_active_agents: localStorage.getItem('gespropec_active_agents'),
+  };
+  
+  const syncData = {
+    db: dump,
+    settings: settings,
+    syncedAt: new Date().toISOString()
+  };
+  
+  const boundary = 'gespropec_multipart_boundary';
+  const metadata = {
+    name: 'gespropec_backup.json',
+    mimeType: 'application/json',
+    parents: ['appDataFolder']
+  };
+  
+  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  
+  if (searchRes.status === 401) {
+    await handleGoogleApiError(searchRes);
+    return;
+  }
+  
+  const searchJson = await searchRes.json();
+  const existingFile = searchJson.files && searchJson.files[0];
+  
+  let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  let method = 'POST';
+  
+  if (existingFile) {
+    url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`;
+    method = 'PATCH';
+  }
+  
+  const multipartBody = 
+    `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify(metadata) +
+    `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+    JSON.stringify(syncData) +
+    `\r\n--${boundary}--`;
+    
+  const uploadRes = await fetch(url, {
+    method: method,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body: multipartBody
+  });
+  
+  if (!uploadRes.ok) {
+    if (uploadRes.status === 401) {
+      await handleGoogleApiError(uploadRes);
+    }
+    throw new Error('Sync failed: ' + uploadRes.statusText);
+  }
+  
+  return true;
+}
+
+async function loadFromGoogleDrive(accessToken) {
+  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  
+  if (searchRes.status === 401) {
+    await handleGoogleApiError(searchRes);
+    return null;
+  }
+  
+  const searchJson = await searchRes.json();
+  const file = searchJson.files && searchJson.files[0];
+  
+  if (!file) {
+    return null;
+  }
+  
+  const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  
+  if (!fileRes.ok) {
+    if (fileRes.status === 401) {
+      await handleGoogleApiError(fileRes);
+    }
+    throw new Error('Download failed: ' + fileRes.statusText);
+  }
+  
+  const syncData = await fileRes.json();
+  
+  if (syncData.db) {
+    await importDatabase(syncData.db);
+  }
+  
+  if (syncData.settings) {
+    Object.entries(syncData.settings).forEach(([key, val]) => {
+      if (val !== null && val !== undefined) {
+        localStorage.setItem(key, val);
+      }
+    });
+  }
+  
+  return syncData.syncedAt;
+}
+
+function updateGoogleSyncUI() {
+  const token = localStorage.getItem('gespropec_google_access_token');
+  const loggedOutSec = document.getElementById('google-logged-out-section');
+  const loggedInSec = document.getElementById('google-logged-in-section');
+  const clientIdInput = document.getElementById('settings-google-client-id');
+  
+  if (clientIdInput) {
+    clientIdInput.value = localStorage.getItem('gespropec_google_client_id') || '';
+  }
+
+  if (token) {
+    if (loggedOutSec) loggedOutSec.style.display = 'none';
+    if (loggedInSec) loggedInSec.style.display = 'flex';
+    
+    const avatar = document.getElementById('google-user-avatar');
+    const name = document.getElementById('google-user-name');
+    const email = document.getElementById('google-user-email');
+    const lastSyncLabel = document.getElementById('google-last-sync-label');
+    const autoSyncChk = document.getElementById('settings-google-auto-sync');
+    
+    if (avatar) avatar.src = localStorage.getItem('google_user_avatar') || '';
+    if (name) name.textContent = localStorage.getItem('google_user_name') || 'Usuario';
+    if (email) email.textContent = localStorage.getItem('google_user_email') || 'correo@gmail.com';
+    
+    const lastSync = localStorage.getItem('gespropec_google_last_sync') || 'Nunca';
+    if (lastSyncLabel) lastSyncLabel.textContent = `Última sincronización: ${lastSync}`;
+    
+    if (autoSyncChk) {
+      autoSyncChk.checked = localStorage.getItem('gespropec_google_auto_sync') === 'true';
+    }
+  } else {
+    if (loggedOutSec) loggedOutSec.style.display = 'block';
+    if (loggedInSec) loggedInSec.style.display = 'none';
+  }
+}
+

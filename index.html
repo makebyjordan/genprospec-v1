@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GesPropec v2 - CRM de Prospección Local-First</title>
     <meta name="description" content="GesPropec: Organiza e importa prospectos desde Google Sheets, gestiona llamadas, notas, calendarios y analíticas offline localmente." />
+    <!-- Google Identity Services -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
     <div id="app">
@@ -390,6 +392,67 @@
           <!-- VIEW 5: SETTINGS -->
           <section id="view-settings" class="app-view" style="display: none;">
             <div style="display: flex; flex-direction: column; gap: 24px;">
+              <!-- CARD: GOOGLE ACCOUNTS & CLOUD SYNC -->
+              <div class="glass-card" id="settings-google-sync-card">
+                <div class="glass-card-header" style="margin-bottom: 12px;">
+                  <div>
+                    <h4 class="card-title">Cuenta de Google y Sincronización en la Nube</h4>
+                    <span class="card-subtitle">Sincroniza tus prospectos, historial y recordatorios usando tu cuenta de Google Drive</span>
+                  </div>
+                </div>
+                
+                <!-- Not Logged In View -->
+                <div id="google-logged-out-section" style="display: block;">
+                  <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                    Para sincronizar tus datos de prospección automáticamente entre dispositivos, conecta tu cuenta de Google. Usamos una carpeta segura y oculta en tu Google Drive para respaldar tus datos de forma 100% privada.
+                  </p>
+                  
+                  <div class="form-group" style="margin-bottom: 16px;">
+                    <label class="form-label" style="font-size: 12px;">Google OAuth Client ID</label>
+                    <input type="text" id="settings-google-client-id" class="input-field" placeholder="Pega tu Client ID de Google Cloud (ej. 123456-abcdef.apps.googleusercontent.com)...">
+                    <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">
+                      Necesitas un Client ID de OAuth 2.0 configurado para tu origen en la Google Cloud Console. Si estás en localhost, asegúrate de añadir <code>http://localhost:5173</code> como origen de JavaScript autorizado.
+                    </span>
+                  </div>
+                  
+                  <button type="button" id="btn-google-login" class="btn btn-primary">
+                    🔑 Conectar Cuenta de Google
+                  </button>
+                </div>
+                
+                <!-- Logged In View -->
+                <div id="google-logged-in-section" style="display: none; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                  <div style="display: flex; align-items: center; gap: 16px;">
+                    <img id="google-user-avatar" src="" alt="Avatar" style="width: 54px; height: 54px; border-radius: 50%; border: 2px solid var(--accent-purple); background: var(--border-color);">
+                    <div style="display: flex; flex-direction: column;">
+                      <span id="google-user-name" style="font-family: var(--font-heading); font-weight: 600; font-size: 16px; color: var(--text-primary);">Cargando...</span>
+                      <span id="google-user-email" style="font-size: 13px; color: var(--text-secondary);">Cargando...</span>
+                      <span class="sync-status-badge" style="margin-top: 4px; font-size: 10px; font-weight: 600; color: #10b981; background: rgba(16, 185, 129, 0.1); padding: 2px 6px; border-radius: 4px; width: fit-content;">Conectado</span>
+                    </div>
+                  </div>
+                  
+                  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button type="button" id="btn-google-sync-push" class="btn btn-success" title="Exportar y subir base de datos local a Google Drive">
+                      📤 Guardar en Drive
+                    </button>
+                    <button type="button" id="btn-google-sync-pull" class="btn btn-primary" title="Importar y sobreescribir base de datos local con la guardada en Google Drive">
+                      📥 Cargar de Drive
+                    </button>
+                    <button type="button" id="btn-google-logout" class="btn btn-secondary">
+                      Cerrar Sesión
+                    </button>
+                  </div>
+                  
+                  <div style="width: 100%; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <span id="google-last-sync-label">Última sincronización: Nunca</span>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                      <input type="checkbox" id="settings-google-auto-sync" style="cursor: pointer; accent-color: var(--accent-purple);">
+                      <span>Guardar en la nube automáticamente al cambiar datos</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
               <div class="glass-card">
                 <div class="glass-card-header" style="margin-bottom: 12px;">
                   <div>

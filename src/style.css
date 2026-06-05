@@ -1724,6 +1724,16 @@ body {
   max-height: none !important;
 }
 
+/* Google Account Avatar micro-animation */
+#google-user-avatar {
+  transition: var(--transition-smooth);
+}
+#google-user-avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(124, 58, 237, 0.4);
+}
+
+
 
 
 
