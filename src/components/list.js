@@ -576,6 +576,10 @@ export async function renderList(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
+  // Preserve the search query before clearing
+  const searchInput = document.getElementById('list-search-input');
+  const preservedQuery = searchInput ? searchInput.value : '';
+
   container.innerHTML = '<div class="notifications-empty" style="padding:40px">Cargando lista...</div>';
 
   try {
@@ -653,9 +657,16 @@ export async function renderList(containerId) {
     `;
 
     // Wire search
-    document.getElementById('list-search-input')?.addEventListener('input', (e) => {
-      filterTable(e.target.value.toLowerCase(), active);
-    });
+    const newSearchInput = document.getElementById('list-search-input');
+    if (newSearchInput) {
+      newSearchInput.value = preservedQuery;
+      newSearchInput.addEventListener('input', (e) => {
+        filterTable(e.target.value.toLowerCase(), active);
+      });
+      if (preservedQuery) {
+        filterTable(preservedQuery.toLowerCase(), active);
+      }
+    }
 
     // Wire sync sheets
     document.getElementById('list-sync-sheets-btn')?.addEventListener('click', async () => {
@@ -1166,29 +1177,64 @@ function wireTable(leads, containerId, isArchived) {
       const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
       window.open(waUrl, '_blank');
 
+      // Find the next visible row before updating and re-rendering
+      let nextLeadId = null;
+      const currentRow = waBtn.closest('.list-row');
+      if (currentRow) {
+        const tableEl = currentRow.closest('table');
+        if (tableEl) {
+          const allRows = [...tableEl.querySelectorAll('.list-row')];
+          const visibleRows = allRows.filter(r => r.style.display !== 'none');
+          const currentIndex = visibleRows.indexOf(currentRow);
+          if (currentIndex !== -1 && currentIndex < visibleRows.length - 1) {
+            nextLeadId = visibleRows[currentIndex + 1].dataset.id;
+          }
+        }
+      }
+
       // Auto change state to "enviado" in background (to avoid popup blocker)
       const td = waBtn.closest('td');
       const leadId = td ? td.dataset.leadid : null;
       if (leadId) {
         try {
           const lead = await getLeadById(leadId);
-          if (lead && lead.pipelineState !== 'enviado') {
-            const prevPipeline = lead.pipelineState || 'ninguno';
-            lead.pipelineState = 'enviado';
-            
-            const prevStatus = lead.status || 'new';
-            const newStatus = getStatusFromPipelineState('enviado'); // 'contacted'
-            
-            if (prevStatus !== newStatus) {
-              lead.status = newStatus;
-              await addLog(leadId, 'system', `Estado cambiado automáticamente a "Contactado" al enviar mensaje por WhatsApp.`);
+          if (lead) {
+            if (lead.pipelineState !== 'enviado') {
+              const prevPipeline = lead.pipelineState || 'ninguno';
+              lead.pipelineState = 'enviado';
+              
+              const prevStatus = lead.status || 'new';
+              const newStatus = getStatusFromPipelineState('enviado'); // 'contacted'
+              
+              if (prevStatus !== newStatus) {
+                lead.status = newStatus;
+                await addLog(leadId, 'system', `Estado cambiado automáticamente a "Contactado" al enviar mensaje por WhatsApp.`);
+              }
+              
+              await updateLead(lead);
+              await addLog(leadId, 'system', `Estado de seguimiento cambiado automáticamente de "${prevPipeline}" a "enviado" al enviar mensaje por WhatsApp.`);
+              
+              await renderList(containerId);
+              if (onListUpdatedCallback) onListUpdatedCallback();
             }
-            
-            await updateLead(lead);
-            await addLog(leadId, 'system', `Estado de seguimiento cambiado automáticamente de "${prevPipeline}" a "enviado" al enviar mensaje por WhatsApp.`);
-            
-            await renderList(containerId);
-            if (onListUpdatedCallback) onListUpdatedCallback();
+
+            // Scroll to the next row (whether we re-rendered or not)
+            if (nextLeadId) {
+              setTimeout(() => {
+                const newNextRow = document.querySelector(`.list-row[data-id="${nextLeadId}"]`);
+                if (newNextRow) {
+                  newNextRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  
+                  // Flash highlight the next row
+                  newNextRow.style.transition = 'background-color 0.5s ease';
+                  const originalBg = newNextRow.style.backgroundColor;
+                  newNextRow.style.backgroundColor = 'rgba(124, 58, 237, 0.15)';
+                  setTimeout(() => {
+                    newNextRow.style.backgroundColor = originalBg;
+                  }, 1500);
+                }
+              }, 100);
+            }
           }
         } catch (dbErr) {
           console.error('Error updating status after WhatsApp click:', dbErr);
