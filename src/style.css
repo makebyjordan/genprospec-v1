@@ -520,14 +520,15 @@ body {
   height: 8px;
   border-radius: 50%;
 }
-/* Column colors based on lead lifecycle */
 .col-new .column-dot { background-color: var(--text-muted); }
 .col-contacted .column-dot { background-color: var(--accent-blue); }
 .col-no-response .column-dot { background-color: var(--accent-orange); }
+.col-no-wasap .column-dot { background-color: #f43f5e; }
 .col-interested .column-dot { background-color: var(--accent-purple); }
 .col-meeting .column-dot { background-color: #ec4899; }
 .col-won .column-dot { background-color: var(--accent-green); }
 .col-lost .column-dot { background-color: var(--accent-red); }
+
 
 .column-title {
   font-family: var(--font-heading);

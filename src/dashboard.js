@@ -15,7 +15,7 @@ export async function renderDashboard(containerId) {
 
     // 1. Calculate KPI Metrics
     const totalLeads = leads.length;
-    const activeLeads = leads.filter(l => ['contacted', 'no-response', 'interested', 'meeting'].includes(l.status)).length;
+    const activeLeads = leads.filter(l => ['contacted', 'no-response', 'interested', 'meeting', 'no-wasap'].includes(l.status)).length;
     const wonLeads = leads.filter(l => l.status === 'won').length;
     const conversionRate = totalLeads > 0 ? ((wonLeads / totalLeads) * 100).toFixed(1) : 0;
     
@@ -180,6 +180,7 @@ function renderCharts(leads) {
     new: 0,
     contacted: 0,
     'no-response': 0,
+    'no-wasap': 0,
     interested: 0,
     meeting: 0,
     won: 0,
@@ -202,33 +203,33 @@ function renderCharts(leads) {
         labels: Object.values(STAGES).map(s => s.label),
         datasets: [{
           label: 'Prospectos',
-          data: [
-            stagesCount.new,
-            stagesCount.contacted,
-            stagesCount['no-response'],
-            stagesCount.interested,
-            stagesCount.meeting,
-            stagesCount.won,
-            stagesCount.lost
-          ],
-          backgroundColor: [
-            'rgba(148, 163, 184, 0.6)', // new
-            'rgba(59, 130, 246, 0.6)',  // contacted
-            'rgba(245, 158, 11, 0.6)',  // no-response
-            'rgba(124, 58, 237, 0.6)',  // interested
-            'rgba(236, 72, 153, 0.6)',  // meeting
-            'rgba(16, 185, 129, 0.6)',  // won
-            'rgba(239, 68, 68, 0.6)'    // lost
-          ],
-          borderColor: [
-            'rgb(148, 163, 184)',
-            'rgb(59, 130, 246)',
-            'rgb(245, 158, 11)',
-            'rgb(124, 58, 237)',
-            'rgb(236, 72, 153)',
-            'rgb(16, 185, 129)',
-            'rgb(239, 68, 68)'
-          ],
+          data: Object.keys(STAGES).map(k => stagesCount[k] || 0),
+          backgroundColor: Object.keys(STAGES).map(k => {
+            const colors = {
+              new: 'rgba(148, 163, 184, 0.6)',
+              contacted: 'rgba(59, 130, 246, 0.6)',
+              'no-response': 'rgba(245, 158, 11, 0.6)',
+              'no-wasap': 'rgba(244, 63, 94, 0.6)',
+              interested: 'rgba(124, 58, 237, 0.6)',
+              meeting: 'rgba(236, 72, 153, 0.6)',
+              won: 'rgba(16, 185, 129, 0.6)',
+              lost: 'rgba(239, 68, 68, 0.6)'
+            };
+            return colors[k] || 'rgba(148, 163, 184, 0.6)';
+          }),
+          borderColor: Object.keys(STAGES).map(k => {
+            const colors = {
+              new: 'rgb(148, 163, 184)',
+              contacted: 'rgb(59, 130, 246)',
+              'no-response': 'rgb(245, 158, 11)',
+              'no-wasap': 'rgb(244, 63, 94)',
+              interested: 'rgb(124, 58, 237)',
+              meeting: 'rgb(236, 72, 153)',
+              won: 'rgb(16, 185, 129)',
+              lost: 'rgb(239, 68, 68)'
+            };
+            return colors[k] || 'rgb(148, 163, 184)';
+          }),
           borderWidth: 1,
           borderRadius: 4
         }]
@@ -272,7 +273,7 @@ function renderCharts(leads) {
     // Descartados: Perdidos
     const positive = stagesCount.interested + stagesCount.meeting;
     const initial = stagesCount.new + stagesCount.contacted;
-    const noResponse = stagesCount['no-response'];
+    const noResponse = stagesCount['no-response'] + (stagesCount['no-wasap'] || 0);
     const success = stagesCount.won;
     const discarded = stagesCount.lost;
 

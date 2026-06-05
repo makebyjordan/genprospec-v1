@@ -5,6 +5,7 @@ export const STAGES = {
   new: { label: 'Nuevos', class: 'col-new' },
   contacted: { label: 'Contactados', class: 'col-contacted' },
   'no-response': { label: 'Sin Respuesta', class: 'col-no-response' },
+  'no-wasap': { label: 'No Wasap', class: 'col-no-wasap' },
   interested: { label: 'Interesados', class: 'col-interested' },
   meeting: { label: 'Reunión Agendada', class: 'col-meeting' },
   won: { label: 'Clientes Ganados', class: 'col-won' },
@@ -197,6 +198,7 @@ export async function renderBoard(containerId) {
               'con mensualidad': 'Con mensualidad',
               'finalizado': 'Finalizado',
               'descartado': 'Descartado',
+              'no_wasap': 'No Wasap',
               '': 'ninguno'
             };
             const prevLabel = pipelineLabels[prevPipeline] || prevPipeline || 'ninguno';

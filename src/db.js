@@ -370,6 +370,7 @@ export function getStatusFromPipelineState(pipelineState) {
   if (wonStates.includes(pipelineState)) return 'won';
   
   if (pipelineState === 'descartado') return 'lost';
+  if (pipelineState === 'no_wasap') return 'no-wasap';
   
   const contactedStates = ['enviado', 'contestado', 'llamar'];
   if (contactedStates.includes(pipelineState)) return 'contacted';
@@ -392,6 +393,7 @@ export function getDefaultPipelineStateFromStatus(status) {
     case 'new': return '';
     case 'contacted': return 'enviado';
     case 'no-response': return 'no contesta';
+    case 'no-wasap': return 'no_wasap';
     case 'interested': return 'pide info';
     case 'meeting': return 'cita';
     case 'won': return 'firmado';
@@ -399,3 +401,4 @@ export function getDefaultPipelineStateFromStatus(status) {
     default: return '';
   }
 }
+
