@@ -724,7 +724,6 @@ function buildTableHTML(leads, columnsConfig, tableId) {
 
     return `
       <tr class="list-row" data-id="${lead.id}" data-agent="${lead.agent || ''}" data-search="${buildSearchStr(lead, columnsConfig)}">
-        ${cells}
         <td class="list-td list-td-actions">
           <div class="list-row-actions">
             <!-- Edit -->
@@ -764,6 +763,7 @@ function buildTableHTML(leads, columnsConfig, tableId) {
             </button>
           </div>
         </td>
+        ${cells}
       </tr>
     `;
   }).join('');
@@ -771,7 +771,7 @@ function buildTableHTML(leads, columnsConfig, tableId) {
   return `
     <table class="list-table" id="list-table-${tableId}">
       <thead>
-        <tr>${headerCells}<th class="list-th list-th-actions">Acciones</th></tr>
+        <tr><th class="list-th list-th-actions">Acciones</th>${headerCells}</tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -934,7 +934,7 @@ function wireTable(leads, containerId, isArchived) {
     const btn = e.target.closest('[data-action]');
     if (!btn) {
       const row = e.target.closest('.list-row');
-      if (row && !e.target.closest('.list-td-editable') && !e.target.closest('.pipeline-select') && onLeadClickCallback) {
+      if (row && !e.target.closest('.list-td-editable') && !e.target.closest('.pipeline-select') && !e.target.closest('.list-td-actions') && onLeadClickCallback) {
         onLeadClickCallback(row.dataset.id);
       }
       return;
