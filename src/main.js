@@ -17,7 +17,7 @@ import { initLeadModal, openLeadDrawer } from './components/leadModal.js';
 import { initNotifications, refreshNotifications } from './components/notifications.js';
 import { initCalendar, renderCalendar } from './calendar.js';
 import { renderDashboard } from './dashboard.js';
-import { initList, renderList } from './components/list.js';
+import { initList, renderList, syncGoogleSheetsLeads } from './components/list.js';
 import { 
   parseCSV, 
   fetchCSV, 
@@ -82,6 +82,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchView('dashboard');
     await refreshNotifications();
     initPrivacyConsent();
+
+    // Background sync on boot
+    syncGoogleSheetsLeads().then(({ countAdded, countUpdated }) => {
+      if (countAdded > 0 || countUpdated > 0) {
+        handleDatabaseUpdate();
+      }
+    }).catch(err => console.error('Initial sync failed:', err));
 
   } catch (error) {
     console.error('App boot failure:', error);
@@ -174,6 +181,14 @@ async function switchView(viewName) {
   
   // Render contents
   await refreshCurrentView();
+
+  if (viewName === 'lista') {
+    syncGoogleSheetsLeads().then(({ countAdded, countUpdated }) => {
+      if (countAdded > 0 || countUpdated > 0) {
+        handleDatabaseUpdate();
+      }
+    }).catch(err => console.error('Lista sync failed:', err));
+  }
 }
 
 /* ==========================================================================

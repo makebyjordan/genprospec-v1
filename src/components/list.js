@@ -1,4 +1,5 @@
-import { getLeadsFilteredByAgent, getAllLeads, getLeadById, updateLead, deleteLead, addLog, getStatusFromPipelineState } from '../db.js';
+import { getLeadsFilteredByAgent, getAllLeads, getLeadById, updateLead, addLead, deleteLead, addLog, getStatusFromPipelineState } from '../db.js';
+import { fetchCSV, parseCSV, autoDetectMapping } from '../importer.js';
 
 export const PIPELINE_STATES = {
   'enviado': { label: 'Enviado', color: '#60a5fa' },
@@ -571,6 +572,12 @@ export async function renderList(containerId) {
         </div>
         <div class="list-toolbar-right">
           <span class="list-count-label" id="list-count-label">${active.length} prospectos</span>
+          <button id="list-sync-sheets-btn" class="btn-list-action" title="Sincronizar con Google Sheets" style="border-color: rgba(59, 130, 246, 0.4); color: #60a5fa;">
+            <svg id="list-sync-icon" style="width:14px;height:14px;transition: transform 1s ease;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89H18M4 20v-5h.581m15.357-2a8.001 8.001 0 11-21.21 4.11H6"/>
+            </svg>
+            <span id="list-sync-text">Sincronizar</span>
+          </button>
           <button id="list-columns-config-btn" class="btn-list-action" title="Configurar Columnas">
             <svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -626,6 +633,33 @@ export async function renderList(containerId) {
     // Wire search
     document.getElementById('list-search-input')?.addEventListener('input', (e) => {
       filterTable(e.target.value.toLowerCase(), active);
+    });
+
+    // Wire sync sheets
+    document.getElementById('list-sync-sheets-btn')?.addEventListener('click', async () => {
+      const syncBtn = document.getElementById('list-sync-sheets-btn');
+      const syncIcon = document.getElementById('list-sync-icon');
+      const syncText = document.getElementById('list-sync-text');
+
+      if (!syncBtn || syncBtn.disabled) return;
+
+      syncBtn.disabled = true;
+      if (syncIcon) syncIcon.classList.add('spinning');
+      if (syncText) syncText.textContent = 'Sincronizando...';
+
+      try {
+        const { countAdded, countUpdated } = await syncGoogleSheetsLeads();
+        showToast(`Sincronización completada. Nuevos: ${countAdded}, Actualizados: ${countUpdated}`);
+        await renderList(containerId);
+        if (onListUpdatedCallback) onListUpdatedCallback();
+      } catch (err) {
+        console.error(err);
+        showToast('Error en la sincronización. Verifica tu conexión.');
+      } finally {
+        if (syncIcon) syncIcon.classList.remove('spinning');
+        if (syncText) syncText.textContent = 'Sincronizar';
+        syncBtn.disabled = false;
+      }
     });
 
     // Wire columns config
@@ -1124,4 +1158,143 @@ function showToast(message) {
     toast.style.transform = 'translate(-50%, 20px)';
     setTimeout(() => toast.remove(), 300);
   }, 2200);
+}
+
+const JORDAN_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1LI9DNodTNW7joOf1-1Sn3v3JJ5D7qDXNHJebiytOwxs/edit?gid=1718071955#gid=1718071955';
+const SANDRA_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1LI9DNodTNW7joOf1-1Sn3v3JJ5D7qDXNHJebiytOwxs/edit?gid=1759813937#gid=1759813937';
+
+export async function syncGoogleSheetsLeads() {
+  try {
+    const jordanCsv = await fetchCSV(JORDAN_SHEET_URL);
+    const sandraCsv = await fetchCSV(SANDRA_SHEET_URL);
+
+    const rowsJordan = parseCSV(jordanCsv);
+    const rowsSandra = parseCSV(sandraCsv);
+
+    if (rowsJordan.length < 2 && rowsSandra.length < 2) {
+      console.warn('Google Sheets are empty or could not be loaded.');
+      return { countAdded: 0, countUpdated: 0 };
+    }
+
+    let totalAdded = 0;
+    let totalUpdated = 0;
+
+    if (rowsJordan.length >= 2) {
+      const { countAdded, countUpdated } = await syncSingleSheetRows(rowsJordan, 'jordan');
+      totalAdded += countAdded;
+      totalUpdated += countUpdated;
+    }
+
+    if (rowsSandra.length >= 2) {
+      const { countAdded, countUpdated } = await syncSingleSheetRows(rowsSandra, 'sandra');
+      totalAdded += countAdded;
+      totalUpdated += countUpdated;
+    }
+
+    return { countAdded: totalAdded, countUpdated: totalUpdated };
+  } catch (error) {
+    console.error('[Sync] Google Sheets sync failed:', error);
+    throw error;
+  }
+}
+
+async function syncSingleSheetRows(rows, defaultAgent) {
+  const headers = rows[0];
+  const dataRows = rows.slice(1);
+  const mapping = autoDetectMapping(headers);
+
+  if (mapping.name === -1) {
+    console.warn(`[Sync] No name column detected for ${defaultAgent}'s sheet.`);
+    return { countAdded: 0, countUpdated: 0 };
+  }
+
+  const existingLeads = await getAllLeads();
+  const leadByEmail = new Map();
+  const leadByName = new Map();
+  existingLeads.forEach(l => {
+    if (l.email) leadByEmail.set(l.email.toLowerCase().trim(), l);
+    if (l.name) leadByName.set(l.name.toLowerCase().trim(), l);
+  });
+
+  let countAdded = 0;
+  let countUpdated = 0;
+
+  for (const row of dataRows) {
+    const getVal = (field) => {
+      const idx = mapping[field];
+      return (idx !== undefined && idx !== -1 && idx < row.length) ? row[idx].trim() : '';
+    };
+
+    const name = getVal('name');
+    if (!name) continue;
+
+    const email = getVal('email');
+    const phone = getVal('phone');
+    const company = getVal('company');
+    const website = getVal('website');
+    const socials = getVal('socials');
+    const initialNotes = getVal('notes');
+
+    const customFields = {};
+    headers.forEach((h, idx) => {
+      if (idx < row.length && h) {
+        customFields[h] = row[idx].trim();
+      }
+    });
+
+    const emailKey = email ? email.toLowerCase().trim() : '';
+    const nameKey = name.toLowerCase().trim();
+
+    let existingLead = null;
+    if (emailKey && leadByEmail.has(emailKey)) {
+      existingLead = leadByEmail.get(emailKey);
+    } else if (leadByName.has(nameKey)) {
+      existingLead = leadByName.get(nameKey);
+    }
+
+    if (existingLead) {
+      let changed = false;
+      
+      if (company && existingLead.company !== company) { existingLead.company = company; changed = true; }
+      if (phone && existingLead.phone !== phone) { existingLead.phone = phone; changed = true; }
+      if (website && existingLead.website !== website) { existingLead.website = website; changed = true; }
+      if (socials && existingLead.socials !== socials) { existingLead.socials = socials; changed = true; }
+      
+      existingLead.customFields = existingLead.customFields || {};
+      for (const [k, v] of Object.entries(customFields)) {
+        if (v && existingLead.customFields[k] !== v) {
+          existingLead.customFields[k] = v;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        existingLead.updatedAt = new Date().toISOString();
+        await updateLead(existingLead);
+        countUpdated++;
+      }
+    } else {
+      const newLead = {
+        id: 'lead-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+        name,
+        email,
+        phone,
+        company,
+        website,
+        socials,
+        agent: defaultAgent,
+        customFields,
+        status: 'new'
+      };
+
+      await addLead(newLead);
+      await addLog(newLead.id, 'system', `Creado automáticamente por sincronización con Google Sheets (${defaultAgent}).`);
+      if (initialNotes) {
+        await addLog(newLead.id, 'note', `Nota importada: "${initialNotes}"`);
+      }
+      countAdded++;
+    }
+  }
+
+  return { countAdded, countUpdated };
 }
