@@ -758,6 +758,23 @@ function buildTableHTML(leads, columnsConfig, tableId) {
   const headerCells = visibleCols.map(col => {
     const widthVal = savedWidths[col.key];
     const styleAttr = widthVal ? `style="width: ${widthVal}px; min-width: ${widthVal}px;"` : '';
+    
+    const isPersonalizedMsgCol = col.label && (col.label.toLowerCase().trim() === 'mensaje personalizado' || col.label.toLowerCase().trim() === 'mensaje_personalizado');
+    if (isPersonalizedMsgCol) {
+      const isExpanded = localStorage.getItem('gespropec_expand_messages') === 'true';
+      return `
+        <th class="list-th" data-col-key="${col.key}" ${styleAttr}>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;">
+            <span>${col.label}</span>
+            <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; text-transform: none; color: var(--text-muted); cursor: pointer; user-select: none; font-weight: normal; margin-right: 8px;">
+              <input type="checkbox" class="toggle-expand-messages-chk" ${isExpanded ? 'checked' : ''} style="cursor: pointer; accent-color: var(--accent-purple); width: 12px; height: 12px; margin: 0;">
+              <span>Expandir</span>
+            </label>
+          </div>
+        </th>
+      `;
+    }
+    
     return `<th class="list-th" data-col-key="${col.key}" ${styleAttr}>${col.label}</th>`;
   }).join('');
 
@@ -821,7 +838,7 @@ function buildTableHTML(leads, columnsConfig, tableId) {
           title="${String(val).replace(/"/g, '&quot;')}"
           style="position: relative; padding-right: 40px; min-width: 200px;"
         >
-          <span style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 12px);">${val}</span>
+          <span class="msg-cell-text">${val}</span>
           <button class="list-whatsapp-msg-btn" 
             data-msg="${String(val).replace(/"/g, '&quot;')}" 
             data-phone="${lead.phone || ''}" 
@@ -910,8 +927,9 @@ function buildTableHTML(leads, columnsConfig, tableId) {
     `;
   }).join('');
 
+  const isExpanded = localStorage.getItem('gespropec_expand_messages') === 'true';
   return `
-    <table class="list-table" id="list-table-${tableId}">
+    <table class="list-table ${isExpanded ? 'expand-messages' : ''}" id="list-table-${tableId}">
       <thead>
         <tr>
           ${indexHeader}
@@ -1096,6 +1114,30 @@ function wireTable(leads, containerId, isArchived) {
 
       await renderList(containerId);
       if (onListUpdatedCallback) onListUpdatedCallback();
+    });
+  });
+
+  // Wire expand messages checkbox click & changes
+  table.querySelectorAll('.toggle-expand-messages-chk').forEach(chk => {
+    chk.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    chk.addEventListener('change', (e) => {
+      const checked = chk.checked;
+      localStorage.setItem('gespropec_expand_messages', checked ? 'true' : 'false');
+      
+      const activeTable = document.getElementById('list-table-active');
+      if (activeTable) {
+        activeTable.classList.toggle('expand-messages', checked);
+        const activeChk = activeTable.querySelector('.toggle-expand-messages-chk');
+        if (activeChk && activeChk !== chk) activeChk.checked = checked;
+      }
+      const archivedTable = document.getElementById('list-table-archived');
+      if (archivedTable) {
+        archivedTable.classList.toggle('expand-messages', checked);
+        const archivedChk = archivedTable.querySelector('.toggle-expand-messages-chk');
+        if (archivedChk && archivedChk !== chk) archivedChk.checked = checked;
+      }
     });
   });
 

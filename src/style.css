@@ -1708,6 +1708,22 @@ body {
   font-weight: normal;
 }
 
+/* Personalized Message wrap toggle */
+.msg-cell-text {
+  display: block;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.list-table.expand-messages .msg-cell-text {
+  white-space: pre-wrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  max-height: none !important;
+}
+
+
 
 
 
