@@ -90,6 +90,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }).catch(err => console.error('Initial sync failed:', err));
 
+    // Background Google Drive pull & merge on boot
+    const isAutoSync = localStorage.getItem('gespropec_google_auto_sync') === 'true';
+    const token = localStorage.getItem('gespropec_google_access_token');
+    if (isAutoSync && token) {
+      backgroundAutoPullAndMerge(token);
+    }
+
   } catch (error) {
     console.error('App boot failure:', error);
   }
@@ -804,7 +811,7 @@ function setupSettingsUI() {
 
         const client = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/drive.appdata email profile',
+          scope: 'https://www.googleapis.com/auth/drive email profile',
           callback: async (tokenResponse) => {
             if (tokenResponse.error) {
               alert('Error al iniciar sesión con Google: ' + tokenResponse.error_description);
@@ -849,6 +856,7 @@ function setupSettingsUI() {
       localStorage.removeItem('google_user_name');
       localStorage.removeItem('google_user_email');
       localStorage.removeItem('google_user_avatar');
+      localStorage.removeItem('gespropec_google_file_id');
       alert('Sesión de Google cerrada.');
       updateGoogleSyncUI();
     });
@@ -1608,8 +1616,42 @@ async function handleGoogleApiError(response) {
 }
 
 async function syncToGoogleDrive(accessToken) {
-  const dump = await exportDatabase();
+  const fileId = await resolveGoogleFileId(accessToken);
   
+  // 1. Fetch remote database to merge (if file exists)
+  let remoteDb = null;
+  if (fileId) {
+    try {
+      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (fileRes.ok) {
+        remoteDb = await fileRes.json();
+      } else if (fileRes.status === 401) {
+        await handleGoogleApiError(fileRes);
+        return false;
+      }
+    } catch (e) {
+      console.warn('Could not fetch remote database for merge, will upload as-is:', e);
+    }
+  }
+
+  // 2. Export local database
+  let localDb = await exportDatabase();
+
+  // 3. Merge if remote exists
+  let finalDb = localDb;
+  if (remoteDb && remoteDb.data) {
+    finalDb = mergeDatabases(localDb, remoteDb);
+    
+    // Import the merged database back to IndexedDB so local state is updated
+    await importDatabase(finalDb);
+    
+    // Trigger UI refresh
+    await refreshCurrentView();
+    await refreshNotifications();
+  }
+
   const settings = {
     gespropec_list_columns_config: localStorage.getItem('gespropec_list_columns_config'),
     gespropec_column_widths: localStorage.getItem('gespropec_column_widths'),
@@ -1619,7 +1661,7 @@ async function syncToGoogleDrive(accessToken) {
   };
   
   const syncData = {
-    db: dump,
+    db: finalDb,
     settings: settings,
     syncedAt: new Date().toISOString()
   };
@@ -1627,27 +1669,14 @@ async function syncToGoogleDrive(accessToken) {
   const boundary = 'gespropec_multipart_boundary';
   const metadata = {
     name: 'gespropec_backup.json',
-    mimeType: 'application/json',
-    parents: ['appDataFolder']
+    mimeType: 'application/json'
   };
-  
-  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  
-  if (searchRes.status === 401) {
-    await handleGoogleApiError(searchRes);
-    return;
-  }
-  
-  const searchJson = await searchRes.json();
-  const existingFile = searchJson.files && searchJson.files[0];
   
   let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
   let method = 'POST';
   
-  if (existingFile) {
-    url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`;
+  if (fileId) {
+    url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`;
     method = 'PATCH';
   }
   
@@ -1673,28 +1702,22 @@ async function syncToGoogleDrive(accessToken) {
     }
     throw new Error('Sync failed: ' + uploadRes.statusText);
   }
+
+  const resultJson = await uploadRes.json();
+  if (resultJson.id) {
+    localStorage.setItem('gespropec_google_file_id', resultJson.id);
+  }
   
   return true;
 }
 
 async function loadFromGoogleDrive(accessToken) {
-  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-  
-  if (searchRes.status === 401) {
-    await handleGoogleApiError(searchRes);
+  const fileId = await resolveGoogleFileId(accessToken);
+  if (!fileId) {
     return null;
   }
   
-  const searchJson = await searchRes.json();
-  const file = searchJson.files && searchJson.files[0];
-  
-  if (!file) {
-    return null;
-  }
-  
-  const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+  const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   
@@ -1755,6 +1778,181 @@ function updateGoogleSyncUI() {
   } else {
     if (loggedOutSec) loggedOutSec.style.display = 'block';
     if (loggedInSec) loggedInSec.style.display = 'none';
+  }
+}
+
+/* Helper to find or create the shared/personal backup file in regular Google Drive */
+async function resolveGoogleFileId(accessToken) {
+  // Check if we already have a validated file ID in local storage
+  const cachedId = localStorage.getItem('gespropec_google_file_id');
+  if (cachedId) {
+    try {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${cachedId}`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (res.ok) {
+        return cachedId;
+      }
+      if (res.status === 401) {
+        await handleGoogleApiError(res);
+        return null;
+      }
+    } catch (e) {
+      console.warn('Error verifying cached file ID:', e);
+    }
+    localStorage.removeItem('gespropec_google_file_id');
+  }
+
+  // Search for the file in the regular Drive (accessible files including shared with me)
+  const query = encodeURIComponent("name='gespropec_backup.json' and trashed=false");
+  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,owners(emailAddress,displayName),modifiedTime)`, {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+
+  if (searchRes.status === 401) {
+    await handleGoogleApiError(searchRes);
+    return null;
+  }
+
+  const searchJson = await searchRes.json();
+  const files = searchJson.files || [];
+
+  if (files.length === 0) {
+    return null;
+  }
+
+  if (files.length === 1) {
+    const fileId = files[0].id;
+    localStorage.setItem('gespropec_google_file_id', fileId);
+    return fileId;
+  }
+
+  // Multiple files found! Resolve using our smart rules:
+  // 1. Prefer Jordan's file (makebyjordan@gmail.com)
+  // 2. Prefer Sandra's file (coreinteligenciasevilla@gmail.com)
+  // 3. Prefer the one with the latest modifiedTime
+  let selectedFile = null;
+
+  const jordanFile = files.find(f => f.owners && f.owners.some(o => o.emailAddress === 'makebyjordan@gmail.com'));
+  const sandraFile = files.find(f => f.owners && f.owners.some(o => o.emailAddress === 'coreinteligenciasevilla@gmail.com'));
+
+  if (jordanFile) {
+    selectedFile = jordanFile;
+  } else if (sandraFile) {
+    selectedFile = sandraFile;
+  } else {
+    // Sort by modifiedTime descending
+    files.sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime));
+    selectedFile = files[0];
+  }
+
+  const fileId = selectedFile.id;
+  localStorage.setItem('gespropec_google_file_id', fileId);
+  return fileId;
+}
+
+/* Helper to merge local and remote databases gracefully */
+function mergeDatabases(localDb, remoteDb) {
+  const localData = localDb.data || { leads: [], logs: [], reminders: [] };
+  const remoteData = remoteDb.data || { leads: [], logs: [], reminders: [] };
+  
+  // 1. Merge leads by ID
+  const mergedLeadsMap = new Map();
+  
+  // Add all remote leads first
+  (remoteData.leads || []).forEach(lead => {
+    mergedLeadsMap.set(lead.id, lead);
+  });
+  
+  // Add or update with local leads
+  (localData.leads || []).forEach(localLead => {
+    const remoteLead = mergedLeadsMap.get(localLead.id);
+    if (!remoteLead) {
+      mergedLeadsMap.set(localLead.id, localLead);
+    } else {
+      // Compare updatedAt
+      const localUpdated = localLead.updatedAt ? new Date(localLead.updatedAt).getTime() : 0;
+      const remoteUpdated = remoteLead.updatedAt ? new Date(remoteLead.updatedAt).getTime() : 0;
+      
+      if (localUpdated >= remoteUpdated) {
+        mergedLeadsMap.set(localLead.id, localLead);
+      }
+    }
+  });
+  
+  // 2. Merge logs by ID (union)
+  const mergedLogsMap = new Map();
+  (remoteData.logs || []).forEach(log => {
+    mergedLogsMap.set(log.id, log);
+  });
+  (localData.logs || []).forEach(log => {
+    mergedLogsMap.set(log.id, log);
+  });
+  
+  // 3. Merge reminders by ID
+  const mergedRemindersMap = new Map();
+  (remoteData.reminders || []).forEach(rem => {
+    mergedRemindersMap.set(rem.id, rem);
+  });
+  (localData.reminders || []).forEach(rem => {
+    const remoteRem = mergedRemindersMap.get(rem.id);
+    if (!remoteRem) {
+      mergedRemindersMap.set(rem.id, rem);
+    } else {
+      if (rem.status === 'completed' && remoteRem.status !== 'completed') {
+        mergedRemindersMap.set(rem.id, rem);
+      } else {
+        mergedRemindersMap.set(rem.id, rem);
+      }
+    }
+  });
+
+  return {
+    version: localDb.version || remoteDb.version || 1,
+    exportedAt: new Date().toISOString(),
+    data: {
+      leads: Array.from(mergedLeadsMap.values()),
+      logs: Array.from(mergedLogsMap.values()),
+      reminders: Array.from(mergedRemindersMap.values())
+    }
+  };
+}
+
+/* Background Google Drive pull and merge for startup boot */
+async function backgroundAutoPullAndMerge(token) {
+  try {
+    const fileId = await resolveGoogleFileId(token);
+    if (!fileId) return;
+
+    const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (!fileRes.ok) {
+      if (fileRes.status === 401) {
+        await handleGoogleApiError(fileRes);
+      }
+      return;
+    }
+
+    const remoteDb = await fileRes.json();
+    const localDb = await exportDatabase();
+
+    const mergedDb = mergeDatabases(localDb, remoteDb);
+    
+    // Save to IndexedDB
+    await importDatabase(mergedDb);
+
+    // Refresh UI
+    await refreshCurrentView();
+    await refreshNotifications();
+
+    const timeStr = new Date().toLocaleTimeString();
+    const label = document.getElementById('google-last-sync-label');
+    if (label) label.textContent = `Última sincronización: Hoy a las ${timeStr} (Auto)`;
+    localStorage.setItem('gespropec_google_last_sync', `Hoy a las ${timeStr} (Auto)`);
+  } catch (err) {
+    console.warn('[Auto Pull Merge Boot] Failed:', err);
   }
 }
 
