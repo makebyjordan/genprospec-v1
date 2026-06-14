@@ -10,9 +10,40 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
-    <div id="app">
-      <!-- SIDEBAR -->
-      <aside class="sidebar">
+    <div id="app" style="width: 100%; min-height: 100vh;">
+      <!-- LOGIN GATE SCREEN -->
+      <div id="login-layout" style="display: none; width: 100%; min-height: 100vh; align-items: center; justify-content: center; background: var(--bg-surface); padding: 20px;">
+        <div class="glass-card" style="max-width: 440px; width: 100%; padding: 40px; display: flex; flex-direction: column; align-items: center; gap: 24px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-color: rgba(124, 58, 237, 0.2);">
+          <div style="width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(135deg, var(--accent-purple), #a78bfa); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 800; color: white; box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);">
+            GP
+          </div>
+          <div>
+            <h2 style="font-family: var(--font-heading); font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Bienvenido a GesPropec</h2>
+            <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.4;">CRM de Prospección Local-First. Inicia sesión con tu cuenta de Google autorizada para acceder al sistema.</p>
+          </div>
+          
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 12px; text-align: left;">
+            <div class="form-group">
+              <label class="form-label" style="font-size: 11px;">Google OAuth Client ID</label>
+              <input type="text" id="login-google-client-id" class="input-field" placeholder="Pega tu Client ID..." style="font-size: 12px;">
+            </div>
+            
+            <button type="button" id="btn-login-google" class="btn btn-primary" style="width: 100%; padding: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">
+              🔑 Iniciar Sesión con Google
+            </button>
+          </div>
+          
+          <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border-color); padding-top: 16px; width: 100%;">
+            🛡️ Acceso exclusivo autorizado para:<br>
+            <strong>makebyjordan@gmail.com</strong> y <strong>coreinteligenciasevilla@gmail.com</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN CRM LAYOUT -->
+      <div id="crm-layout" style="display: none; width: 100%; min-height: 100vh;">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
         <div class="sidebar-brand">
           <div class="brand-icon">GP</div>
           <span class="brand-name">GesPropec</span>
@@ -616,6 +647,7 @@
             </div>
           </form>
         </div>
+      </div>
       </div>
     </div>
     

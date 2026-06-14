@@ -37,7 +37,24 @@ let parsedCsvData = null; // Stores parsed 2D array from sheet
 let currentMapping = null;
 
 // Initialize App
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
+  // Global custom listeners (set up once)
+  document.addEventListener('database-updated', handleDatabaseUpdate);
+  document.addEventListener('open-lead-detail', (e) => {
+    if (e.detail) {
+      handleLeadClick(e.detail);
+    }
+  });
+
+  setupLoginGate();
+});
+
+async function initCRM() {
+  const loginLayout = document.getElementById('login-layout');
+  const crmLayout = document.getElementById('crm-layout');
+  if (loginLayout) loginLayout.style.display = 'none';
+  if (crmLayout) crmLayout.style.display = 'flex';
+
   try {
     // 1. Initialize DB
     await initDB();
@@ -70,15 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupClientsUI();
     setupAgentFilterUI();
     
-    // 6. Global custom listeners
-    document.addEventListener('database-updated', handleDatabaseUpdate);
-    document.addEventListener('open-lead-detail', (e) => {
-      if (e.detail) {
-        handleLeadClick(e.detail);
-      }
-    });
-
-    // 7. Initial load
+    // 6. Initial load
     switchView('dashboard');
     await refreshNotifications();
     initPrivacyConsent();
@@ -100,7 +109,110 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error('App boot failure:', error);
   }
-});
+}
+
+function setupLoginGate() {
+  const loginLayout = document.getElementById('login-layout');
+  const crmLayout = document.getElementById('crm-layout');
+  const token = localStorage.getItem('gespropec_google_access_token');
+  const email = localStorage.getItem('google_user_email');
+  
+  // Authorized emails list
+  const authorizedEmails = ['makebyjordan@gmail.com', 'coreinteligenciasevilla@gmail.com'];
+
+  if (token && email && authorizedEmails.includes(email.toLowerCase())) {
+    // User is already logged in with authorized email
+    // Automatically set their active agent
+    setActiveAgentFromEmail(email.toLowerCase());
+    initCRM();
+  } else {
+    // Show login screen
+    if (loginLayout) loginLayout.style.display = 'flex';
+    if (crmLayout) crmLayout.style.display = 'none';
+    
+    const clientIdInput = document.getElementById('login-google-client-id');
+    const loginBtn = document.getElementById('btn-login-google');
+    
+    // Pre-fill client ID
+    if (clientIdInput) {
+      clientIdInput.value = localStorage.getItem('gespropec_google_client_id') || '207858491722-qf2tg9nttj3koj90cuosqd47o82rfes0.apps.googleusercontent.com';
+    }
+    
+    if (loginBtn) {
+      loginBtn.onclick = () => {
+        const clientId = clientIdInput ? clientIdInput.value.trim() : '';
+        if (!clientId) {
+          alert('Por favor, introduce tu Google OAuth Client ID.');
+          return;
+        }
+        
+        localStorage.setItem('gespropec_google_client_id', clientId);
+        
+        try {
+          if (typeof google === 'undefined') {
+            alert('La librería de Google no se ha cargado. Verifica tu conexión a internet.');
+            return;
+          }
+
+          const client = google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: 'https://www.googleapis.com/auth/drive email profile',
+            callback: async (tokenResponse) => {
+              if (tokenResponse.error) {
+                alert('Error al iniciar sesión con Google: ' + tokenResponse.error_description);
+                return;
+              }
+              
+              if (tokenResponse.access_token) {
+                const accessToken = tokenResponse.access_token;
+                
+                try {
+                  const userInfo = await fetchGoogleUserInfo(accessToken);
+                  if (userInfo && userInfo.email) {
+                    const userEmail = userInfo.email.toLowerCase();
+                    
+                    if (authorizedEmails.includes(userEmail)) {
+                      localStorage.setItem('gespropec_google_access_token', accessToken);
+                      localStorage.setItem('google_user_name', userInfo.name || userInfo.given_name || 'Usuario');
+                      localStorage.setItem('google_user_email', userEmail);
+                      localStorage.setItem('google_user_avatar', userInfo.picture || '');
+                      
+                      setActiveAgentFromEmail(userEmail);
+                      
+                      alert('Inicio de sesión exitoso.');
+                      initCRM();
+                    } else {
+                      alert(`Acceso denegado: El correo ${userEmail} no está autorizado para acceder a GesPropec.`);
+                      localStorage.removeItem('gespropec_google_access_token');
+                    }
+                  } else {
+                    alert('No se pudo verificar el correo electrónico del perfil de Google.');
+                  }
+                } catch (profileErr) {
+                  console.error('Error fetching profile:', profileErr);
+                  alert('Error al obtener la información de perfil de Google.');
+                }
+              }
+            },
+          });
+          
+          client.requestAccessToken({ prompt: 'consent' });
+        } catch (err) {
+          console.error(err);
+          alert('Ocurrió un error al inicializar el login de Google.');
+        }
+      };
+    }
+  }
+}
+
+function setActiveAgentFromEmail(email) {
+  if (email === 'makebyjordan@gmail.com') {
+    localStorage.setItem('gespropec_active_agents', JSON.stringify(['jordan']));
+  } else if (email === 'coreinteligenciasevilla@gmail.com') {
+    localStorage.setItem('gespropec_active_agents', JSON.stringify(['sandra']));
+  }
+}
 
 // Refresh whichever view is currently active
 async function refreshCurrentView() {
@@ -859,6 +971,13 @@ function setupSettingsUI() {
       localStorage.removeItem('gespropec_google_file_id');
       alert('Sesión de Google cerrada.');
       updateGoogleSyncUI();
+
+      // Hide CRM layout and show Login gate
+      const loginLayout = document.getElementById('login-layout');
+      const crmLayout = document.getElementById('crm-layout');
+      if (loginLayout) loginLayout.style.display = 'flex';
+      if (crmLayout) crmLayout.style.display = 'none';
+      setupLoginGate();
     });
   }
 
