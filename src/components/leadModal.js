@@ -196,7 +196,6 @@ function setupModalDOM() {
             <select id="edit-agent" class="input-field" style="background-color: var(--bg-surface);">
               <option value="unassigned">Sin Asignar</option>
               <option value="jordan">Jordan García</option>
-              <option value="sandra">Sandra Delgado</option>
             </select>
           </div>
           

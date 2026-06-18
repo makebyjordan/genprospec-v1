@@ -35,7 +35,7 @@
           
           <div style="font-size: 11px; color: var(--text-muted); line-height: 1.4; border-top: 1px solid var(--border-color); padding-top: 16px; width: 100%;">
             🛡️ Acceso exclusivo autorizado para:<br>
-            <strong>makebyjordan@gmail.com</strong> y <strong>coreinteligenciasevilla@gmail.com</strong>
+            <strong>makebyjordan@gmail.com</strong>
           </div>
         </div>
       </div>
@@ -49,12 +49,11 @@
           <span class="brand-name">GesPropec</span>
         </div>
         
-        <!-- AGENT SELECTOR FILTER -->
-        <div class="sidebar-agent-selector">
+        <!-- AGENT SELECTOR FILTER (Hidden for single user) -->
+        <div class="sidebar-agent-selector" style="display: none;">
           <span style="font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 8px;">Agente Activo</span>
           <div class="agent-pill-container">
             <button type="button" class="agent-pill active" data-agent="jordan">Jordan</button>
-            <button type="button" class="agent-pill active" data-agent="sandra">Sandra</button>
           </div>
         </div>
 
@@ -243,16 +242,14 @@
                       Nota: Asegúrate de que la hoja esté compartida como <strong>"Cualquier persona con el enlace puede ver"</strong> o publicada a la web como CSV.
                     </span>
                   </div>
-                  <div class="form-group" style="margin-bottom: 20px;">
+                  <div class="form-group" style="margin-bottom: 20px; display: none;">
                     <label class="form-label">Visualizar columna de:</label>
                     <select id="import-sheet-tab-select-url" class="input-field" style="background-color: var(--bg-surface);">
                       <option value="jordan" selected>Jordan Caninas</option>
-                      <option value="sandra">Sandra Corredurías</option>
-                      <option value="both">☰ Ambas columnas</option>
                     </select>
                   </div>
 
-                  <!-- Second URL field — shown only when "Ambas" is selected -->
+                  <!-- Second URL field — shown only when "Ambas" is selected (Deprecated/hidden) -->
                   <div id="import-both-sandra-wrap" class="form-group" style="display:none; margin-bottom: 20px; padding: 14px; border-radius: 8px; border: 1px dashed rgba(244,114,182,0.3); background: rgba(244,114,182,0.04);">
                     <label class="form-label" style="color:#f472b6; margin-bottom:6px;">
                       🔗 Enlace de la pestaña <strong>Sandra Corredurías</strong>
@@ -331,12 +328,10 @@
                 
                 <div style="margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
                   <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; display: none;">
                       <label class="form-label" style="font-size: 12px; margin: 0; white-space: nowrap; color: var(--text-secondary);">Visualizar columna de:</label>
                       <select id="import-sheet-tab-select-mapper" class="input-field" style="background-color: var(--bg-surface); padding: 6px 12px; font-size:12px; margin: 0; width: 180px; height: auto;">
                         <option value="jordan" selected>Jordan Caninas</option>
-                        <option value="sandra">Sandra Corredurías</option>
-                        <option value="both">☰ Ambas columnas</option>
                       </select>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -344,8 +339,6 @@
                       <select id="import-default-agent" class="input-field" style="background-color: var(--bg-surface); padding: 6px 12px; font-size:12px; margin: 0; width: 180px; height: auto;">
                         <option value="unassigned" selected>Sin Asignar</option>
                         <option value="jordan">Jordan García</option>
-                        <option value="sandra">Sandra Delgado</option>
-                        <option value="auto">Asignar por separado</option>
                       </select>
                     </div>
                   </div>
@@ -363,13 +356,13 @@
                   <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span id="preview-summary" style="font-size: 13px; color: var(--text-secondary);"></span>
 
-                    <!-- Btn 1: Auto-assign Jordan / Sandra -->
+                    <!-- Btn 1: Auto-assign Jordan / Sandra (Deprecated/hidden) -->
                     <button type="button" id="btn-import-auto-assign" class="btn" style="
                       background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(236,72,153,0.2));
                       border: 1px solid rgba(139,92,246,0.4);
                       color: #c4b5fd;
                       font-size: 13px;
-                      display: flex; align-items: center; gap: 6px;
+                      display: none; align-items: center; gap: 6px;
                     " title="Asigna cada contacto a Jordan o Sandra según su categoría">
                       <svg style="width:14px;height:14px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -481,9 +474,8 @@
                       <span>Guardar en la nube automáticamente al cambiar datos</span>
                     </label>
                   </div>
-                  
                   <div style="width: 100%; font-size: 11px; color: var(--text-muted); margin-top: 4px; padding: 8px; background: rgba(139,92,246,0.05); border-radius: 6px; border-left: 3px solid var(--accent-purple); line-height: 1.4;">
-                    👥 <strong>Sincronización compartida:</strong> Para compartir datos entre Jordan y Sandra, uno de los dos debe pulsar "Guardar en Drive", ir a su cuenta de Google Drive, buscar el archivo <code>gespropec_backup.json</code> en la raíz y compartirlo como Editor con la otra cuenta. La aplicación detectará automáticamente el archivo compartido.
+                    ☁️ <strong>Sincronización privada:</strong> Tus datos se guardan de forma segura y privada en una carpeta oculta dentro de tu cuenta de Google Drive (AppData). Solo tú tienes acceso a esta copia de seguridad.
                   </div>
                 </div>
               </div>
@@ -593,7 +585,6 @@
               <select id="quick-add-agent" class="input-field" style="background-color: var(--bg-surface);">
                 <option value="unassigned" selected>Sin Asignar</option>
                 <option value="jordan">Jordan García</option>
-                <option value="sandra">Sandra Delgado</option>
               </select>
             </div>
             <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end;">
@@ -638,7 +629,6 @@
               <select id="client-add-agent" class="input-field" style="background-color: var(--bg-surface);">
                 <option value="unassigned" selected>Sin Asignar</option>
                 <option value="jordan">Jordan García</option>
-                <option value="sandra">Sandra Delgado</option>
               </select>
             </div>
             <div style="display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end;">

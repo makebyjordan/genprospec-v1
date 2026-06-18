@@ -78,7 +78,6 @@ export function buildAgentSelectHTML(lead) {
   const currentVal = lead.agent || '';
   let color = '#94a3b8'; // Sin asignar
   if (currentVal === 'jordan') color = '#a78bfa';
-  if (currentVal === 'sandra') color = '#f472b6';
 
   return `
     <select class="agent-select" data-leadid="${lead.id}" style="
@@ -88,7 +87,6 @@ export function buildAgentSelectHTML(lead) {
     ">
       <option value="" ${currentVal === '' ? 'selected' : ''}>Sin asignar</option>
       <option value="jordan" ${currentVal === 'jordan' ? 'selected' : ''}>Jordan</option>
-      <option value="sandra" ${currentVal === 'sandra' ? 'selected' : ''}>Sandra</option>
     </select>
   `;
 }
@@ -111,14 +109,10 @@ function statusBadge(status) {
 
 // Returns the "other" agent for transfer action
 function otherAgent(agent) {
-  if (agent === 'jordan') return 'sandra';
-  if (agent === 'sandra') return 'jordan';
   return null;
 }
 
 function otherAgentLabel(agent) {
-  if (agent === 'jordan') return 'Enviar a Sandra';
-  if (agent === 'sandra') return 'Enviar a Jordan';
   return null;
 }
 

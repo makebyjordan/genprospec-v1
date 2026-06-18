@@ -140,7 +140,7 @@ export async function processImportedRows(csvRows, columnMapping) {
     if (agentVal) {
       const lower = agentVal.toLowerCase();
       if (lower.includes('jordan')) agent = 'jordan';
-      else if (lower.includes('sandra')) agent = 'sandra';
+      else if (lower.includes('sandra')) agent = 'jordan'; // Map Sandra to Jordan
     }
     
     // Capture all columns as key-value custom fields using their headers as keys

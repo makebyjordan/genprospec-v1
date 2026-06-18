@@ -99,11 +99,20 @@ async function initCRM() {
       }
     }).catch(err => console.error('Initial sync failed:', err));
 
-    // Background Google Drive pull & merge on boot
+    // Background Google Drive pull on boot
     const isAutoSync = localStorage.getItem('gespropec_google_auto_sync') === 'true';
     const token = localStorage.getItem('gespropec_google_access_token');
     if (isAutoSync && token) {
-      backgroundAutoPullAndMerge(token);
+      loadFromGoogleDrive(token).then((syncedAt) => {
+        if (syncedAt) {
+          const timeStr = new Date(syncedAt).toLocaleTimeString();
+          const label = document.getElementById('google-last-sync-label');
+          if (label) label.textContent = `Última sincronización: Hoy a las ${timeStr} (Auto)`;
+          localStorage.setItem('gespropec_google_last_sync', `Hoy a las ${timeStr} (Auto)`);
+          refreshCurrentView();
+          refreshNotifications();
+        }
+      }).catch(err => console.warn('[Auto Pull Boot] Failed:', err));
     }
 
   } catch (error) {
@@ -117,8 +126,8 @@ function setupLoginGate() {
   const token = localStorage.getItem('gespropec_google_access_token');
   const email = localStorage.getItem('google_user_email');
   
-  // Authorized emails list
-  const authorizedEmails = ['makebyjordan@gmail.com', 'coreinteligenciasevilla@gmail.com'];
+  // Authorized emails list (Jordan only)
+  const authorizedEmails = ['makebyjordan@gmail.com'];
 
   if (token && email && authorizedEmails.includes(email.toLowerCase())) {
     // User is already logged in with authorized email
@@ -156,7 +165,7 @@ function setupLoginGate() {
 
           const client = google.accounts.oauth2.initTokenClient({
             client_id: clientId,
-            scope: 'https://www.googleapis.com/auth/drive email profile',
+            scope: 'https://www.googleapis.com/auth/drive.appdata email profile',
             callback: async (tokenResponse) => {
               if (tokenResponse.error) {
                 alert('Error al iniciar sesión con Google: ' + tokenResponse.error_description);
@@ -207,11 +216,7 @@ function setupLoginGate() {
 }
 
 function setActiveAgentFromEmail(email) {
-  if (email === 'makebyjordan@gmail.com') {
-    localStorage.setItem('gespropec_active_agents', JSON.stringify(['jordan']));
-  } else if (email === 'coreinteligenciasevilla@gmail.com') {
-    localStorage.setItem('gespropec_active_agents', JSON.stringify(['sandra']));
-  }
+  localStorage.setItem('gespropec_active_agents', JSON.stringify(['jordan']));
 }
 
 // Refresh whichever view is currently active
@@ -330,24 +335,6 @@ async function switchView(viewName) {
    GOOGLE SHEETS IMPORTER UI LOGIC
    ========================================================================== */
 
-// Fetch both Jordan tab URL and Sandra tab URL and merge into one dataset
-async function fetchBothTabs(jordanUrl, sandraUrl) {
-  const [csvJordan, csvSandra] = await Promise.all([
-    fetchCSV(jordanUrl),
-    fetchCSV(sandraUrl)
-  ]);
-
-  const rowsJordan = parseCSV(csvJordan);
-  const rowsSandra = parseCSV(csvSandra);
-
-  if (rowsJordan.length < 2) throw new Error('La pestaña de Jordan Caninas está vacía o no se pudo leer.');
-  if (rowsSandra.length < 2) throw new Error('La pestaña de Sandra Corredurías está vacía o no se pudo leer.');
-
-  const headers = rowsJordan[0];
-  const merged = [headers, ...rowsJordan.slice(1), ...rowsSandra.slice(1)];
-  return merged;
-}
-
 function setupImporterUI() {
   const urlTabBtn = document.getElementById('btn-import-url-tab');
   const fileTabBtn = document.getElementById('btn-import-file-tab');
@@ -357,57 +344,10 @@ function setupImporterUI() {
   const fetchBtn = document.getElementById('btn-fetch-sheets');
   const fileInput = document.getElementById('import-csv-file');
   const sheetUrlInput = document.getElementById('import-sheets-url');
-  const sandraUrlInput = document.getElementById('import-sheets-url-sandra');
-  const sandraWrap = document.getElementById('import-both-sandra-wrap');
 
   const mapperCard = document.getElementById('mapper-card');
   const previewCard = document.getElementById('preview-card');
-
-  const tabSelectUrl = document.getElementById('import-sheet-tab-select-url');
-  const tabSelectMapper = document.getElementById('import-sheet-tab-select-mapper');
   const defaultAgentSelect = document.getElementById('import-default-agent');
-
-  // Show/hide Sandra URL field and sync agent select on tab change
-  tabSelectUrl.addEventListener('change', () => {
-    const isBoth = tabSelectUrl.value === 'both';
-    sandraWrap.style.display = isBoth ? 'block' : 'none';
-    defaultAgentSelect.value = isBoth ? 'auto' : tabSelectUrl.value;
-  });
-
-  // Re-fetch function on mapper tab change
-  const handleTabChange = async (newTab) => {
-    tabSelectUrl.value = newTab;
-    tabSelectMapper.value = newTab;
-    defaultAgentSelect.value = newTab === 'both' ? 'auto' : newTab;
-
-    const url = sheetUrlInput.value.trim();
-    if (!url) return;
-
-    tabSelectMapper.disabled = true;
-    try {
-      let rows;
-      if (newTab === 'both') {
-        tabSelectMapper.disabled = true;
-        rows = await fetchBothTabs(url);
-      } else {
-        const finalUrl = getUrlWithTabGid(url, newTab);
-        rows = parseCSV(await fetchCSV(finalUrl));
-      }
-
-      if (rows.length < 2) throw new Error('Las hojas seleccionadas están vacías.');
-      parsedCsvData = rows;
-      setupMapperOptions(parsedCsvData[0]);
-      previewCard.style.display = 'none';
-    } catch (err) {
-      alert('Error al cambiar de pestaña: ' + err.message);
-    } finally {
-      tabSelectMapper.disabled = false;
-    }
-  };
-
-  tabSelectMapper.addEventListener('change', () => {
-    handleTabChange(tabSelectMapper.value);
-  });
 
   // Sub-tabs switching
   urlTabBtn.addEventListener('click', () => {
@@ -436,31 +376,18 @@ function setupImporterUI() {
     fetchBtn.textContent = 'Descargando datos...';
 
     try {
-      const selectedTab = tabSelectUrl.value;
-      let rows;
-
-      if (selectedTab === 'both') {
-        const sandraUrl = sandraUrlInput ? sandraUrlInput.value.trim() : '';
-        if (!sandraUrl) {
-          alert('Para importar ambas columnas necesitas pegar también la URL de la pestaña de Sandra Corredurías.');
-          return;
-        }
-        fetchBtn.textContent = 'Descargando ambas pestañas...';
-        // url = Jordan tab URL, sandraUrl = Sandra tab URL
-        rows = await fetchBothTabs(url, sandraUrl);
-      } else {
-        // Pass the URL directly — fetchCSV extracts gid from the URL automatically
-        rows = parseCSV(await fetchCSV(url));
-      }
+      // Pass the URL directly — fetchCSV extracts gid from the URL automatically
+      const rows = parseCSV(await fetchCSV(url));
 
       if (rows.length < 2) throw new Error('La hoja está vacía o no tiene el formato correcto.');
       parsedCsvData = rows;
 
       setupMapperOptions(parsedCsvData[0]);
 
-      // Sync mapper selections and agent default
-      tabSelectMapper.value = selectedTab;
-      defaultAgentSelect.value = selectedTab === 'both' ? 'auto' : selectedTab;
+      // Sync default agent selection
+      if (defaultAgentSelect) {
+        defaultAgentSelect.value = 'jordan';
+      }
 
       // Reveal mapper card
       mapperCard.style.display = 'block';
@@ -548,11 +475,7 @@ function setupImporterUI() {
     await renderImportPreview();
   });
 
-  // ── Core import function (used by all three buttons) ───────────────────────
-  // overrideMode:
-  //   'auto'   → detect Jordan/Sandra from row content (caninas vs corredurías)
-  //   'lista'  → everyone gets agent='unassigned' (shared Lista view)
-  //   null     → use the selector value (original behaviour)
+  // ── Core import function (used by import buttons) ───────────────────────
   async function executeImport(overrideMode) {
     const executeBtn    = document.getElementById('btn-import-execute');
     const autoBtn       = document.getElementById('btn-import-auto-assign');
@@ -560,9 +483,11 @@ function setupImporterUI() {
     const allBtns       = [executeBtn, autoBtn, listaBtn];
 
     allBtns.forEach(b => { if (b) b.disabled = true; });
-    if (overrideMode === 'auto')  { autoBtn.textContent  = 'Asignando…'; }
-    else if (overrideMode === 'lista') { listaBtn.innerHTML = '⏳ Añadiendo…'; }
-    else { executeBtn.textContent = 'Importando…'; }
+    if (overrideMode === 'lista') {
+      if (listaBtn) listaBtn.innerHTML = '⏳ Añadiendo…';
+    } else {
+      if (executeBtn) executeBtn.textContent = 'Importando…';
+    }
 
     try {
       const processed  = await processImportedRows(parsedCsvData, currentMapping);
@@ -573,63 +498,20 @@ function setupImporterUI() {
         return;
       }
 
-      // Determine which tab was selected (so rows from Sandra URL → sandra, from Jordan → jordan)
-      const selectedTab    = document.getElementById('import-sheet-tab-select-url')?.value;
-      const selectorAgent  = document.getElementById('import-default-agent')?.value;
+      const selectorAgent  = document.getElementById('import-default-agent')?.value || 'unassigned';
 
       let count = 0;
       for (const lead of toImport) {
         let assignedAgent = 'unassigned';
 
         if (overrideMode === 'lista') {
-          // Shared list: no agent assigned; visible to everyone in Lista view
           assignedAgent = 'unassigned';
-
-        } else if (overrideMode === 'auto') {
-          // Auto-detect from row content keywords
-          const rowText = lead.originalRow.join(' ').toLowerCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          const isJordan = rowText.includes('canin') || rowText.includes('perro') ||
-                           rowText.includes('dog')   || rowText.includes('mascota') ||
-                           rowText.includes('veterinari') || rowText.includes('grooming') ||
-                           rowText.includes('felina') || rowText.includes('gato');
-          const isSandra = rowText.includes('corredur') || rowText.includes('segur') ||
-                           rowText.includes('broker')   || rowText.includes('mutua') ||
-                           rowText.includes('ksm')      || rowText.includes('asegur') ||
-                           rowText.includes('peritaje') || rowText.includes('asistencia');
-
-          // Also use the selected tab as a strong signal when detecting ambiguous rows
-          if (selectedTab === 'jordan') {
-            assignedAgent = 'jordan';
-          } else if (selectedTab === 'sandra') {
-            assignedAgent = 'sandra';
-          } else if (isJordan && !isSandra) {
-            assignedAgent = 'jordan';
-          } else if (isSandra && !isJordan) {
-            assignedAgent = 'sandra';
-          } else if (lead.agent && lead.agent !== 'unassigned') {
-            assignedAgent = lead.agent;
-          }
-          // else stays 'unassigned'
-
         } else {
-          // Original mode: respect lead.agent if set, else use selector value
-          if (lead.agent && lead.agent !== 'unassigned') {
-            assignedAgent = lead.agent;
+          // If the lead itself contains 'jordan' (or previously sandra which gets parsed as jordan)
+          if (lead.agent === 'jordan' || lead.agent === 'sandra') {
+            assignedAgent = 'jordan';
           } else if (selectorAgent === 'jordan') {
             assignedAgent = 'jordan';
-          } else if (selectorAgent === 'sandra') {
-            assignedAgent = 'sandra';
-          } else if (selectorAgent === 'auto') {
-            const rowText = lead.originalRow.join(' ').toLowerCase()
-              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            if (rowText.includes('canin') || rowText.includes('perro') || rowText.includes('dog') ||
-                rowText.includes('mascota') || rowText.includes('veterinari') || rowText.includes('grooming')) {
-              assignedAgent = 'jordan';
-            } else if (rowText.includes('corredur') || rowText.includes('segur') || rowText.includes('broker') ||
-                       rowText.includes('mutua') || rowText.includes('ksm') || rowText.includes('asegur')) {
-              assignedAgent = 'sandra';
-            }
           }
         }
 
@@ -654,9 +536,7 @@ function setupImporterUI() {
         count++;
       }
 
-      const modeLabel = overrideMode === 'auto'  ? 'asignados automáticamente a Jordan/Sandra'
-                      : overrideMode === 'lista' ? 'añadidos a la Lista compartida'
-                      : 'pasados a Seguimiento';
+      const modeLabel = overrideMode === 'lista' ? 'añadidos a la Lista' : 'pasados a Seguimiento';
       alert(`¡Completado! ${count} prospectos ${modeLabel}.`);
 
       // Reset UI
@@ -676,7 +556,6 @@ function setupImporterUI() {
     } finally {
       allBtns.forEach(b => { if (b) b.disabled = false; });
       if (executeBtn) executeBtn.textContent = 'Pasar Nuevos a Seguimiento';
-      if (autoBtn)    autoBtn.innerHTML = `<svg style="width:14px;height:14px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Asignar a Jordan / Sandra`;
       if (listaBtn)   listaBtn.innerHTML = `<svg style="width:14px;height:14px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 6h18M3 14h18M3 18h18"/></svg> Añadir a Lista`;
     }
   }
@@ -685,8 +564,10 @@ function setupImporterUI() {
   document.getElementById('btn-import-execute')
     .addEventListener('click', () => executeImport(null));
 
-  document.getElementById('btn-import-auto-assign')
-    .addEventListener('click', () => executeImport('auto'));
+  const autoAssignBtn = document.getElementById('btn-import-auto-assign');
+  if (autoAssignBtn) {
+    autoAssignBtn.addEventListener('click', () => executeImport('auto'));
+  }
 
   document.getElementById('btn-import-to-lista')
     .addEventListener('click', () => executeImport('lista'));
@@ -1386,8 +1267,8 @@ function setupAgentFilterUI() {
   const pills = document.querySelectorAll('.agent-pill');
   if (pills.length === 0) return;
 
-  // Read initial active agents list from storage, default to all if not set
-  let activeAgents = ['jordan', 'sandra', 'unassigned'];
+  // Read initial active agents list from storage, default to jordan/unassigned
+  let activeAgents = ['jordan', 'unassigned'];
   const saved = localStorage.getItem('gespropec_active_agents');
   if (saved) {
     try {
@@ -1419,9 +1300,10 @@ function setupAgentFilterUI() {
         }
       });
 
-      // If both are selected (or both deselected), include 'unassigned' as well.
-      // If only one is selected, do not include unassigned.
-      if (newActiveAgents.length === 2 || newActiveAgents.length === 0) {
+      if (!newActiveAgents.includes('jordan')) {
+        newActiveAgents.push('jordan');
+      }
+      if (!newActiveAgents.includes('unassigned')) {
         newActiveAgents.push('unassigned');
       }
 
@@ -1438,6 +1320,14 @@ async function autoAssignAgentsToExistingLeads() {
   let updatedCount = 0;
   
   for (const lead of leads) {
+    let changed = false;
+    
+    // Migrate Sandra leads to Jordan to avoid data invisibility
+    if (lead.agent === 'sandra') {
+      lead.agent = 'jordan';
+      changed = true;
+    }
+    
     if (!lead.agent || lead.agent === 'unassigned') {
       let assignedAgent = 'unassigned';
       
@@ -1457,10 +1347,7 @@ async function autoAssignAgentsToExistingLeads() {
         textToSearch.includes('dog') || 
         textToSearch.includes('mascota') || 
         textToSearch.includes('veterinari') ||
-        textToSearch.includes('grooming')
-      ) {
-        assignedAgent = 'jordan';
-      } else if (
+        textToSearch.includes('grooming') ||
         textToSearch.includes('corredur') || 
         textToSearch.includes('segur') || 
         textToSearch.includes('broker') || 
@@ -1468,19 +1355,23 @@ async function autoAssignAgentsToExistingLeads() {
         textToSearch.includes('ksm') ||
         textToSearch.includes('asegur')
       ) {
-        assignedAgent = 'sandra';
+        assignedAgent = 'jordan';
       }
       
       if (assignedAgent !== 'unassigned') {
         lead.agent = assignedAgent;
-        await updateLead(lead);
-        updatedCount++;
+        changed = true;
       }
+    }
+    
+    if (changed) {
+      await updateLead(lead);
+      updatedCount++;
     }
   }
   
   if (updatedCount > 0) {
-    console.log(`Auto-assigned ${updatedCount} leads to agents based on keywords.`);
+    console.log(`Auto-assigned/Migrated ${updatedCount} leads to Jordan.`);
   }
 }
 
@@ -1735,41 +1626,7 @@ async function handleGoogleApiError(response) {
 }
 
 async function syncToGoogleDrive(accessToken) {
-  const fileId = await resolveGoogleFileId(accessToken);
-  
-  // 1. Fetch remote database to merge (if file exists)
-  let remoteDb = null;
-  if (fileId) {
-    try {
-      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      if (fileRes.ok) {
-        remoteDb = await fileRes.json();
-      } else if (fileRes.status === 401) {
-        await handleGoogleApiError(fileRes);
-        return false;
-      }
-    } catch (e) {
-      console.warn('Could not fetch remote database for merge, will upload as-is:', e);
-    }
-  }
-
-  // 2. Export local database
   let localDb = await exportDatabase();
-
-  // 3. Merge if remote exists
-  let finalDb = localDb;
-  if (remoteDb && remoteDb.data) {
-    finalDb = mergeDatabases(localDb, remoteDb);
-    
-    // Import the merged database back to IndexedDB so local state is updated
-    await importDatabase(finalDb);
-    
-    // Trigger UI refresh
-    await refreshCurrentView();
-    await refreshNotifications();
-  }
 
   const settings = {
     gespropec_list_columns_config: localStorage.getItem('gespropec_list_columns_config'),
@@ -1780,7 +1637,7 @@ async function syncToGoogleDrive(accessToken) {
   };
   
   const syncData = {
-    db: finalDb,
+    db: localDb,
     settings: settings,
     syncedAt: new Date().toISOString()
   };
@@ -1788,14 +1645,27 @@ async function syncToGoogleDrive(accessToken) {
   const boundary = 'gespropec_multipart_boundary';
   const metadata = {
     name: 'gespropec_backup.json',
-    mimeType: 'application/json'
+    mimeType: 'application/json',
+    parents: ['appDataFolder']
   };
+  
+  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  
+  if (searchRes.status === 401) {
+    await handleGoogleApiError(searchRes);
+    return false;
+  }
+  
+  const searchJson = await searchRes.json();
+  const existingFile = searchJson.files && searchJson.files[0];
   
   let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
   let method = 'POST';
   
-  if (fileId) {
-    url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`;
+  if (existingFile) {
+    url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=multipart`;
     method = 'PATCH';
   }
   
@@ -1821,22 +1691,28 @@ async function syncToGoogleDrive(accessToken) {
     }
     throw new Error('Sync failed: ' + uploadRes.statusText);
   }
-
-  const resultJson = await uploadRes.json();
-  if (resultJson.id) {
-    localStorage.setItem('gespropec_google_file_id', resultJson.id);
-  }
   
   return true;
 }
 
 async function loadFromGoogleDrive(accessToken) {
-  const fileId = await resolveGoogleFileId(accessToken);
-  if (!fileId) {
+  const searchRes = await fetch('https://www.googleapis.com/drive/v3/files?q=name%3D%27gespropec_backup.json%27&spaces=appDataFolder', {
+    headers: { 'Authorization': `Bearer ${accessToken}` }
+  });
+  
+  if (searchRes.status === 401) {
+    await handleGoogleApiError(searchRes);
     return null;
   }
   
-  const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+  const searchJson = await searchRes.json();
+  const file = searchJson.files && searchJson.files[0];
+  
+  if (!file) {
+    return null;
+  }
+  
+  const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
     headers: { 'Authorization': `Bearer ${accessToken}` }
   });
   
@@ -1897,181 +1773,6 @@ function updateGoogleSyncUI() {
   } else {
     if (loggedOutSec) loggedOutSec.style.display = 'block';
     if (loggedInSec) loggedInSec.style.display = 'none';
-  }
-}
-
-/* Helper to find or create the shared/personal backup file in regular Google Drive */
-async function resolveGoogleFileId(accessToken) {
-  // Check if we already have a validated file ID in local storage
-  const cachedId = localStorage.getItem('gespropec_google_file_id');
-  if (cachedId) {
-    try {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${cachedId}`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      if (res.ok) {
-        return cachedId;
-      }
-      if (res.status === 401) {
-        await handleGoogleApiError(res);
-        return null;
-      }
-    } catch (e) {
-      console.warn('Error verifying cached file ID:', e);
-    }
-    localStorage.removeItem('gespropec_google_file_id');
-  }
-
-  // Search for the file in the regular Drive (accessible files including shared with me)
-  const query = encodeURIComponent("name='gespropec_backup.json' and trashed=false");
-  const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,owners(emailAddress,displayName),modifiedTime)`, {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  });
-
-  if (searchRes.status === 401) {
-    await handleGoogleApiError(searchRes);
-    return null;
-  }
-
-  const searchJson = await searchRes.json();
-  const files = searchJson.files || [];
-
-  if (files.length === 0) {
-    return null;
-  }
-
-  if (files.length === 1) {
-    const fileId = files[0].id;
-    localStorage.setItem('gespropec_google_file_id', fileId);
-    return fileId;
-  }
-
-  // Multiple files found! Resolve using our smart rules:
-  // 1. Prefer Jordan's file (makebyjordan@gmail.com)
-  // 2. Prefer Sandra's file (coreinteligenciasevilla@gmail.com)
-  // 3. Prefer the one with the latest modifiedTime
-  let selectedFile = null;
-
-  const jordanFile = files.find(f => f.owners && f.owners.some(o => o.emailAddress === 'makebyjordan@gmail.com'));
-  const sandraFile = files.find(f => f.owners && f.owners.some(o => o.emailAddress === 'coreinteligenciasevilla@gmail.com'));
-
-  if (jordanFile) {
-    selectedFile = jordanFile;
-  } else if (sandraFile) {
-    selectedFile = sandraFile;
-  } else {
-    // Sort by modifiedTime descending
-    files.sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime));
-    selectedFile = files[0];
-  }
-
-  const fileId = selectedFile.id;
-  localStorage.setItem('gespropec_google_file_id', fileId);
-  return fileId;
-}
-
-/* Helper to merge local and remote databases gracefully */
-function mergeDatabases(localDb, remoteDb) {
-  const localData = localDb.data || { leads: [], logs: [], reminders: [] };
-  const remoteData = remoteDb.data || { leads: [], logs: [], reminders: [] };
-  
-  // 1. Merge leads by ID
-  const mergedLeadsMap = new Map();
-  
-  // Add all remote leads first
-  (remoteData.leads || []).forEach(lead => {
-    mergedLeadsMap.set(lead.id, lead);
-  });
-  
-  // Add or update with local leads
-  (localData.leads || []).forEach(localLead => {
-    const remoteLead = mergedLeadsMap.get(localLead.id);
-    if (!remoteLead) {
-      mergedLeadsMap.set(localLead.id, localLead);
-    } else {
-      // Compare updatedAt
-      const localUpdated = localLead.updatedAt ? new Date(localLead.updatedAt).getTime() : 0;
-      const remoteUpdated = remoteLead.updatedAt ? new Date(remoteLead.updatedAt).getTime() : 0;
-      
-      if (localUpdated >= remoteUpdated) {
-        mergedLeadsMap.set(localLead.id, localLead);
-      }
-    }
-  });
-  
-  // 2. Merge logs by ID (union)
-  const mergedLogsMap = new Map();
-  (remoteData.logs || []).forEach(log => {
-    mergedLogsMap.set(log.id, log);
-  });
-  (localData.logs || []).forEach(log => {
-    mergedLogsMap.set(log.id, log);
-  });
-  
-  // 3. Merge reminders by ID
-  const mergedRemindersMap = new Map();
-  (remoteData.reminders || []).forEach(rem => {
-    mergedRemindersMap.set(rem.id, rem);
-  });
-  (localData.reminders || []).forEach(rem => {
-    const remoteRem = mergedRemindersMap.get(rem.id);
-    if (!remoteRem) {
-      mergedRemindersMap.set(rem.id, rem);
-    } else {
-      if (rem.status === 'completed' && remoteRem.status !== 'completed') {
-        mergedRemindersMap.set(rem.id, rem);
-      } else {
-        mergedRemindersMap.set(rem.id, rem);
-      }
-    }
-  });
-
-  return {
-    version: localDb.version || remoteDb.version || 1,
-    exportedAt: new Date().toISOString(),
-    data: {
-      leads: Array.from(mergedLeadsMap.values()),
-      logs: Array.from(mergedLogsMap.values()),
-      reminders: Array.from(mergedRemindersMap.values())
-    }
-  };
-}
-
-/* Background Google Drive pull and merge for startup boot */
-async function backgroundAutoPullAndMerge(token) {
-  try {
-    const fileId = await resolveGoogleFileId(token);
-    if (!fileId) return;
-
-    const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (!fileRes.ok) {
-      if (fileRes.status === 401) {
-        await handleGoogleApiError(fileRes);
-      }
-      return;
-    }
-
-    const remoteDb = await fileRes.json();
-    const localDb = await exportDatabase();
-
-    const mergedDb = mergeDatabases(localDb, remoteDb);
-    
-    // Save to IndexedDB
-    await importDatabase(mergedDb);
-
-    // Refresh UI
-    await refreshCurrentView();
-    await refreshNotifications();
-
-    const timeStr = new Date().toLocaleTimeString();
-    const label = document.getElementById('google-last-sync-label');
-    if (label) label.textContent = `Última sincronización: Hoy a las ${timeStr} (Auto)`;
-    localStorage.setItem('gespropec_google_last_sync', `Hoy a las ${timeStr} (Auto)`);
-  } catch (err) {
-    console.warn('[Auto Pull Merge Boot] Failed:', err);
   }
 }
 

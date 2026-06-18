@@ -324,33 +324,9 @@ export async function importDatabase(backupData) {
 
 export async function getLeadsFilteredByAgent() {
   const allLeads = await getAllLeads();
-  
-  // Retrieve active agents list from LocalStorage, default to all if not set
-  let activeAgents = ['jordan', 'sandra', 'unassigned'];
-  const saved = localStorage.getItem('gespropec_active_agents');
-  if (saved) {
-    try {
-      activeAgents = JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  const hasJordan = activeAgents.includes('jordan');
-  const hasSandra = activeAgents.includes('sandra');
-
-  // If neither jordan nor sandra is active, return empty list
-  if (!hasJordan && !hasSandra) {
-    return [];
-  }
-
   return allLeads.filter(lead => {
-    // Normalize agent names. E.g. lead.agent can be 'jordan', 'sandra', or undefined/empty (unassigned)
     const agent = (lead.agent || 'unassigned').toLowerCase().trim();
-    if (agent === 'unassigned') return true; // Always include common "Lista" (unassigned) leads if at least one agent is active
-    if (agent === 'jordan') return hasJordan;
-    if (agent === 'sandra') return hasSandra;
-    return false;
+    return agent === 'jordan' || agent === 'unassigned';
   });
 }
 
